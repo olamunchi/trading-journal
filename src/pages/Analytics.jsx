@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { BarChart, Bar, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, ScatterChart, Scatter, ZAxis, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useTradeStore } from '../store/tradeStore'
 import {
   filterByPeriod, computeMetrics, computeBySymbol, computeByTag,
-  computeBySession, computeByMood, computeByExecScore, computeByConfidence, computeDow,
+  computeBySession, computeByMood, computeByExecScore, computeByConfidence, computeDisciplineScore, computeDow,
   computeMAEMFE, computeRMultiples, computeTradeR,
   fmtPnL, pnlColor,
 } from '../engine/metrics'
@@ -28,17 +28,21 @@ const TABS = [
 ]
 
 export function Analytics() {
-  const { trades, periodFilter } = useTradeStore()
+  const { trades, periodFilter, sessionOffset, setSessionOffset } = useTradeStore()
   const [tab, setTab] = useState('symbol')
 
   const filtered  = useMemo(() => filterByPeriod(trades, periodFilter), [trades, periodFilter])
   const bySymbol  = useMemo(() => computeBySymbol(filtered),    [filtered])
   const byTag     = useMemo(() => computeByTag(filtered),       [filtered])
-  const bySession = useMemo(() => computeBySession(filtered),   [filtered])
+  const bySession = useMemo(() => computeBySession(filtered, sessionOffset), [filtered, sessionOffset])
   const byMood    = useMemo(() => computeByMood(filtered),        [filtered])
   const byConf    = useMemo(() => computeByConfidence(filtered), [filtered])
   const byExec    = useMemo(() => computeByExecScore(filtered),  [filtered])
   const maemfe    = useMemo(() => computeMAEMFE(filtered),      [filtered])
+  const scatterData = useMemo(() => ({
+    wins:   filtered.filter(t => t.profit > 0  && t.mae != null && t.mfe != null).map(t => ({ mae: t.mae, mfe: t.mfe, instrument: t.instrument, profit: t.profit })),
+    losses: filtered.filter(t => t.profit <= 0 && t.mae != null && t.mfe != null).map(t => ({ mae: t.mae, mfe: t.mfe, instrument: t.instrument, profit: t.profit })),
+  }), [filtered])
   const rData     = useMemo(() => computeRMultiples(filtered),  [filtered])
   const longs     = useMemo(() => filtered.filter(t => t.side === 'long'),  [filtered])
   const shorts    = useMemo(() => filtered.filter(t => t.side === 'short'), [filtered])
@@ -171,6 +175,23 @@ export function Analytics() {
       {/* ── Time Analysis ── */}
       {tab === 'session' && (
         <div className="space-y-4">
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-muted">Data timezone:</span>
+            <select
+              value={sessionOffset}
+              onChange={e => setSessionOffset(Number(e.target.value))}
+              className="bg-card border border-border rounded-md px-2 py-1 text-sm text-slate-300 focus:outline-none focus:border-accent"
+            >
+              <option value={0}>ET (Eastern Time) — default</option>
+              <option value={1}>CT (Central Time, UTC-6/-5)</option>
+              <option value={2}>MT (Mountain Time, UTC-7/-6)</option>
+              <option value={3}>PT (Pacific Time, UTC-8/-7)</option>
+              <option value={5}>GMT / WET (Portugal Winter, UK Winter)</option>
+              <option value={6}>CET (Portugal Summer / Central Europe Winter)</option>
+              <option value={7}>CEST (Central Europe Summer)</option>
+            </select>
+            <span className="text-subtle text-xs">Adjusts session hour classification to match your broker's time</span>
+          </div>
           <ChartCard title="Performance by Time of Day">
             {bySession.length === 0
               ? <div className="text-muted text-sm py-10 text-center">No session data available.</div>
@@ -213,6 +234,49 @@ export function Analytics() {
       {/* ── Psychology ── */}
       {tab === 'psych' && (
         <div className="space-y-4">
+
+          {/* Discipline Score */}
+          {(() => {
+            const ds = computeDisciplineScore(filtered)
+            if (!ds) return (
+              <div className="bg-card border border-border rounded-xl p-5 text-center text-sm text-muted">
+                Rate at least 3 trades using <strong>Followed Plan?</strong> in the Trade Drawer to generate your Discipline Score.
+              </div>
+            )
+            const { score, components, ratedCount, totalTrades } = ds
+            const scoreColor  = score >= 75 ? 'text-profit' : score >= 55 ? 'text-accent' : score >= 40 ? 'text-warn' : 'text-loss'
+            const scoreLabel  = score >= 90 ? 'Elite Discipline' : score >= 75 ? 'Strong Discipline' : score >= 55 ? 'Solid Discipline' : score >= 40 ? 'Needs Work' : 'High Tilt Risk'
+            const barColor = pct => pct >= 0.75 ? 'bg-profit' : pct >= 0.5 ? 'bg-accent' : pct >= 0.3 ? 'bg-warn' : 'bg-loss'
+            return (
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="text-xs text-muted uppercase tracking-wider mb-4">Discipline Score</div>
+                <div className="flex items-center gap-8">
+                  <div className="text-center flex-shrink-0 w-28">
+                    <div className={`text-6xl font-bold leading-none ${scoreColor}`}>{score}</div>
+                    <div className="text-xs text-subtle mt-1">/ 100</div>
+                    <div className={`text-xs font-semibold mt-2 ${scoreColor}`}>{scoreLabel}</div>
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    {components.map(c => (
+                      <div key={c.label}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-muted">{c.label}</span>
+                          <span className="text-subtle">{c.score} / {c.max} pts</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-bg overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${barColor(c.pct)}`} style={{ width: (c.pct * 100) + '%' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-border text-xs text-subtle">
+                  Based on {ratedCount} rated trades out of {totalTrades} total
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ChartCard title="Performance by Mood">
               {byMood.length === 0 || byMood.every(r => r.mood === 'Not logged')
@@ -463,6 +527,54 @@ export function Analytics() {
             <div className="text-muted text-sm py-10 text-center">No MAE/MFE data. Make sure those columns are mapped at import.</div>
           ) : (
             <>
+              {/* MAE vs MFE Scatter */}
+              {(scatterData.wins.length > 0 || scatterData.losses.length > 0) && (
+                <ChartCard title="MAE vs MFE Scatter — All Trades">
+                  <div className="text-xs text-muted mb-3">
+                    Each dot is one trade. X = max adverse excursion (heat taken), Y = max favorable excursion (max move in your direction).
+                    Winners cluster top-left (big move, low heat). Losers cluster bottom-right (lots of heat, little move).
+                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ScatterChart margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
+                      <XAxis dataKey="mae" type="number" tick={AX} name="MAE"
+                        label={{ value: 'MAE ($)', position: 'insideBottom', offset: -15, fill: '#6e7681', fontSize: 11 }}
+                        tickFormatter={v => '$' + v} />
+                      <YAxis dataKey="mfe" type="number" tick={AX} name="MFE"
+                        label={{ value: 'MFE ($)', angle: -90, position: 'insideLeft', fill: '#6e7681', fontSize: 11 }}
+                        tickFormatter={v => '$' + v} />
+                      <Tooltip
+                        cursor={{ strokeDasharray: '3 3' }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null
+                          const d = payload[0].payload
+                          return (
+                            <div style={{ background: '#1c2128', border: '1px solid #30363d', borderRadius: 8, fontSize: 12, padding: '8px 12px' }}>
+                              <div className="font-semibold text-slate-200 mb-1">{d.instrument}</div>
+                              <div className={d.profit >= 0 ? 'text-profit' : 'text-loss'}>{fmtPnL(d.profit)}</div>
+                              <div className="text-muted mt-1.5">MAE: ${d.mae.toFixed(2)}</div>
+                              <div className="text-muted">MFE: ${d.mfe.toFixed(2)}</div>
+                            </div>
+                          )
+                        }}
+                      />
+                      <Scatter name="Winners" data={scatterData.wins}   fill="#3fb950" fillOpacity={0.65} />
+                      <Scatter name="Losers"  data={scatterData.losses} fill="#f85149" fillOpacity={0.65} />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                  <div className="flex gap-5 justify-center mt-1 text-xs text-muted">
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: '#3fb950' }} />
+                      Winners ({scatterData.wins.length})
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: '#f85149' }} />
+                      Losers ({scatterData.losses.length})
+                    </span>
+                  </div>
+                </ChartCard>
+              )}
+
               {/* KPI cards */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-card border border-border rounded-xl p-4">

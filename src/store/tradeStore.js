@@ -12,6 +12,8 @@ export const useTradeStore = create(
     (set) => ({
       trades: [],
       periodFilter: 'all',
+      sessionOffset: 0,
+      dailyLossLimit: null,
       addTrades: (incoming) => set(state => ({ trades: mergeUnique(state.trades, incoming) })),
       updateTrade: (id, patch) => set(state => ({
         trades: state.trades.map(t => t.id === id ? { ...t, ...patch } : t),
@@ -19,6 +21,8 @@ export const useTradeStore = create(
       deleteTrade: (id) => set(state => ({ trades: state.trades.filter(t => t.id !== id) })),
       clearAll: () => set({ trades: [] }),
       setPeriodFilter: (f) => set({ periodFilter: f }),
+      setSessionOffset: (n) => set({ sessionOffset: n }),
+      setDailyLossLimit: (v) => set({ dailyLossLimit: v }),
     }),
     { name: 'tj-v1' }
   )

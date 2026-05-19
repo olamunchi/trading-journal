@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AreaChart, Area, BarChart, Bar, Cell,
   CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -19,8 +19,17 @@ const TT = {
 const AX = { stroke: '#6e7681', fontSize: 11 }
 
 export function Dashboard() {
-  const { trades, periodFilter } = useTradeStore()
+  const { trades, periodFilter, dailyLossLimit, setDailyLossLimit } = useTradeStore()
+  const [editingLimit, setEditingLimit] = useState(false)
+  const [limitInput, setLimitInput]     = useState('')
   const filtered = useMemo(() => filterByPeriod(trades, periodFilter), [trades, periodFilter])
+
+  const todayPnL = useMemo(() => {
+    const today = new Date().toLocaleDateString()
+    return trades
+      .filter(t => t.entryTime && new Date(t.entryTime).toLocaleDateString() === today)
+      .reduce((s, t) => s + t.profit, 0)
+  }, [trades])
   const m  = useMemo(() => computeMetrics(filtered),    [filtered])
   const eq = useMemo(() => computeEquityCurve(filtered),[filtered])
   const mo = useMemo(() => computeMonthly(filtered),    [filtered])
@@ -58,6 +67,101 @@ export function Dashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {kpis.map(k => <KpiCard key={k.label} {...k} />)}
       </div>
+
+      {/* Daily loss limit tracker */}
+      {(() => {
+        const loss = Math.abs(Math.min(0, todayPnL))
+        const pct  = dailyLossLimit ? Math.min(loss / dailyLossLimit, 1) : 0
+        const over = dailyLossLimit && loss > dailyLossLimit
+        const warn = dailyLossLimit && pct >= 0.7 && !over
+
+        function saveLimit() {
+          const v = parseFloat(limitInput)
+          if (v > 0) setDailyLossLimit(v)
+          setEditingLimit(false)
+        }
+
+        if (!dailyLossLimit) return (
+          <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-3">
+            <span className="text-sm text-muted">No daily loss limit set</span>
+            {editingLimit ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted">$</span>
+                <input
+                  autoFocus
+                  type="number"
+                  value={limitInput}
+                  onChange={e => setLimitInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveLimit(); if (e.key === 'Escape') setEditingLimit(false) }}
+                  placeholder="e.g. 500"
+                  className="w-28 bg-bg border border-border rounded-md px-2 py-1 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                />
+                <button onClick={saveLimit} className="px-3 py-1 bg-accent text-white text-xs rounded-md">Set</button>
+                <button onClick={() => setEditingLimit(false)} className="text-muted text-xs hover:text-slate-300">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => { setEditingLimit(true); setLimitInput('') }} className="text-xs text-accent hover:text-blue-400 transition-colors">
+                + Set daily loss limit
+              </button>
+            )}
+          </div>
+        )
+
+        const barColor = over ? 'bg-loss' : warn ? 'bg-warn' : 'bg-profit'
+        const borderColor = over ? 'border-loss/40' : warn ? 'border-warn/40' : 'border-border'
+
+        return (
+          <div className={`bg-card border rounded-xl px-5 py-4 ${borderColor}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                {over && <span className="text-loss text-sm">⚠</span>}
+                <span className="text-xs text-muted uppercase tracking-wider">Daily Loss Limit</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {editingLimit ? (
+                  <>
+                    <span className="text-sm text-muted">$</span>
+                    <input
+                      autoFocus
+                      type="number"
+                      value={limitInput}
+                      onChange={e => setLimitInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveLimit(); if (e.key === 'Escape') setEditingLimit(false) }}
+                      className="w-24 bg-bg border border-border rounded-md px-2 py-1 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                    />
+                    <button onClick={saveLimit} className="px-3 py-1 bg-accent text-white text-xs rounded-md">Save</button>
+                    <button onClick={() => { setDailyLossLimit(null); setEditingLimit(false) }} className="text-xs text-loss hover:text-red-400">Remove</button>
+                    <button onClick={() => setEditingLimit(false)} className="text-xs text-muted hover:text-slate-300">Cancel</button>
+                  </>
+                ) : (
+                  <button onClick={() => { setEditingLimit(true); setLimitInput(String(dailyLossLimit)) }} className="text-xs text-subtle hover:text-muted transition-colors">
+                    Edit limit
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <div className="flex justify-between text-xs text-muted mb-1.5">
+                  <span>Today: <span className={loss > 0 ? 'text-loss font-medium' : 'text-profit font-medium'}>{todayPnL >= 0 ? fmtPnL(todayPnL) : '-$' + loss.toFixed(2)}</span></span>
+                  <span>Limit: <span className="text-slate-300">${dailyLossLimit.toFixed(0)}</span></span>
+                </div>
+                <div className="h-2 rounded-full bg-bg overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: (pct * 100) + '%' }} />
+                </div>
+                <div className={`text-xs mt-1.5 ${over ? 'text-loss' : warn ? 'text-warn' : 'text-subtle'}`}>
+                  {over
+                    ? `Limit exceeded — $${(loss - dailyLossLimit).toFixed(2)} over`
+                    : loss > 0
+                    ? `${(pct * 100).toFixed(0)}% used — $${(dailyLossLimit - loss).toFixed(2)} remaining`
+                    : todayPnL > 0 ? `Up ${fmtPnL(todayPnL)} today — no losses yet` : 'No trades today'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Equity curve */}
       <ChartCard title="Equity Curve">

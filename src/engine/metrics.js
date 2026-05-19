@@ -162,12 +162,14 @@ const SESSIONS = [
   { label: 'After Hours', test: h => h >= 16 },
 ]
 
-export function computeBySession(trades) {
+export function computeBySession(trades, offset = 0) {
   const buckets = SESSIONS.map(s => ({ label: s.label, test: s.test, trades: [] }))
   trades.forEach(t => {
     if (!t.entryTime) return
     const d = new Date(t.entryTime)
-    const h = d.getHours() + d.getMinutes() / 60
+    const raw = d.getHours() + d.getMinutes() / 60
+    // offset = hours to subtract from data time to reach ET (e.g. Portugal UTC+1 winter vs ET UTC-5 = offset 6)
+    const h = ((raw - offset) % 24 + 24) % 24
     const b = buckets.find(s => s.test(h))
     if (b) b.trades.push(t)
   })
@@ -284,6 +286,48 @@ export function computeRMultiples(trades) {
   }
 }
 
+
+export function computeDisciplineScore(trades) {
+  const rated = trades.filter(t => t.followedPlan !== null && t.followedPlan !== undefined)
+  if (rated.length < 3) return null
+
+  // Plan adherence — 0 to 40 pts
+  const planRate = rated.filter(t => t.followedPlan === true).length / rated.length
+  const planScore = planRate * 40
+
+  // Emotional control — 0 to 30 pts (revenge/fomo/stressed count as bad)
+  const BAD_MOODS = new Set(['revenge', 'fomo', 'stressed'])
+  const moodRated = trades.filter(t => t.mood)
+  const badMoodRate = moodRated.length
+    ? moodRated.filter(t => BAD_MOODS.has(t.mood)).length / moodRated.length
+    : 0
+  const emotionScore = (1 - badMoodRate) * 30
+
+  // Rule following — 0 to 20 pts (fewer "broke rules" trades = higher score)
+  const mistakeRate = rated.filter(t => t.followedPlan === false).length / rated.length
+  const mistakeScore = (1 - mistakeRate) * 20
+
+  // Execution quality — 0 to 10 pts
+  const execScored = trades.filter(t => t.executionScore)
+  const avgExec = execScored.length
+    ? execScored.reduce((s, t) => s + t.executionScore, 0) / execScored.length
+    : null
+  const execScore = avgExec !== null ? ((avgExec - 1) / 4) * 10 : 5
+
+  const total = Math.min(100, Math.max(0, Math.round(planScore + emotionScore + mistakeScore + execScore)))
+
+  return {
+    score: total,
+    ratedCount: rated.length,
+    totalTrades: trades.length,
+    components: [
+      { label: 'Plan Adherence',    score: Math.round(planScore),    max: 40, pct: planRate },
+      { label: 'Emotional Control', score: Math.round(emotionScore), max: 30, pct: 1 - badMoodRate },
+      { label: 'Rule Following',    score: Math.round(mistakeScore), max: 20, pct: 1 - mistakeRate },
+      { label: 'Execution Quality', score: Math.round(execScore),    max: 10, pct: avgExec !== null ? (avgExec - 1) / 4 : 0.5 },
+    ],
+  }
+}
 
 export function computeByConfidence(trades) {
   const ORDER = ['low', 'medium', 'high']
