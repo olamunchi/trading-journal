@@ -24,7 +24,7 @@ npm run build
 
 - **GitHub repo:** https://github.com/olamunchi/trading-journal
 - **Hosting:** Vercel — auto-deploys on every push to `main`
-- **Live URL:** (set after first Vercel deploy)
+- **Live URL:** https://trading-journal-bbbegmauy-olamunchis-projects.vercel.app
 - **To deploy:** just `git push` — Vercel auto-deploys from GitHub main branch
 
 ---
