@@ -20,6 +20,15 @@ npm run build
 
 ---
 
+## Deployment
+
+- **GitHub repo:** https://github.com/olamunchi/trading-journal
+- **Hosting:** Vercel — auto-deploys on every push to `main`
+- **Live URL:** (set after first Vercel deploy)
+- **To deploy:** just `git push` — Vercel auto-deploys from GitHub main branch
+
+---
+
 ## Tech Stack
 
 | Layer | Library |
@@ -45,23 +54,25 @@ src/
 │
 ├── engine/
 │   ├── metrics.js                 # Pure analytics functions (no side effects)
+│   ├── reportGenerator.js         # Generates markdown AI coaching report
 │   └── csvParser.js               # Column auto-detection + trade normalization
 │
 ├── components/
 │   ├── layout/
-│   │   ├── Sidebar.jsx            # Left nav with 5 items
-│   │   └── Topbar.jsx             # Period filter dropdown + Import button
+│   │   ├── Sidebar.jsx            # Left nav with 7 items
+│   │   └── Topbar.jsx             # Period filter dropdown + Export + Import buttons
 │   ├── ui/
 │   │   ├── KpiCard.jsx            # Reusable metric card
 │   │   └── ChartCard.jsx          # Reusable chart wrapper card
 │   └── trades/
-│       └── TradeDrawer.jsx        # Right slide-in panel: tags, notes, delete
+│       └── TradeDrawer.jsx        # Right slide-in panel: tags, notes, psychology, stop price
 │
 └── pages/
     ├── Dashboard.jsx              # KPIs + equity curve + all charts
     ├── Trades.jsx                 # Filterable/sortable trade table
     ├── Calendar.jsx               # Monthly P&L heatmap
-    ├── Analytics.jsx              # 4-tab analytics view
+    ├── Analytics.jsx              # 9-tab analytics view
+    ├── Report.jsx                 # AI coaching report — copy/paste to Claude.ai
     └── Import.jsx                 # Drag & drop CSV → column mapper → import
 ```
 
@@ -107,7 +118,9 @@ Every trade stored in Zustand has this shape:
   tags: string[],          // Setup tags (editable in TradeDrawer)
 
   // — Set manually in TradeDrawer after reviewing the trade —
-  riskAmount: number|null, // $ risk per trade — used to compute R-multiples
+  stopPrice: number|null,  // Stop price → used to compute R-multiple automatically
+                           // R = (exitPrice - entryPrice) / (entryPrice - stopPrice)
+                           // Works for both longs and shorts (qty/point-value cancel out)
   executionScore: 1|2|3|4|5|null, // 1=Poor, 2=Below Avg, 3=Neutral, 4=Good, 5=Perfect
   mood: 'calm'|'focused'|'fomo'|'revenge'|'tired'|'stressed'|'',
   confidence: 'low'|'medium'|'high'|'',
@@ -130,19 +143,20 @@ All pure — take an array of trades, return computed data. No store access.
 | `computeMetrics(trades)` | Single object with all KPIs (see KPI list below) |
 | `computeEquityCurve(trades)` | `[{ i, date, value, profit }]` sorted by entryTime |
 | `computeMonthly(trades)` | `[{ label, pnl }]` grouped by month |
-| `computeDow(trades)` | `[{ label, pnl, count }]` — 7 days, avg P&L per day |
+| `computeDow(trades)` | `[{ label, count, pnl, ...computeMetrics }]` — 7 days, avg P&L + full metrics per day |
 | `computeHourly(trades)` | `[{ label, pnl, count }]` — hours 06:00–20:00 |
 | `computeDist(trades)` | `[{ label, count, isWin }]` — 20-bucket P&L histogram |
 | `computeBySymbol(trades)` | `[{ sym, ...metrics }]` sorted by netPnL desc |
 | `computeByTag(trades)` | `[{ tag, ...metrics }]` — untagged trades go in "Untagged" |
-| `computeBySession(trades)` | `[{ label, ...metrics }]` — Pre-Market / AM / Midday / PM / After Hours |
+| `computeBySession(trades)` | `[{ label, ...metrics }]` — 8 time blocks (Pre-Market / 9:30–10:30 / … / After Hours) |
 | `computeByMood(trades)` | `[{ mood, ...metrics }]` grouped by `t.mood` |
 | `computeByExecScore(trades)` | `[{ score, label, ...metrics }]` for scores 1–5 |
 | `computeMAEMFE(trades)` | `{ avgCapture, captureBuckets, avgMaeRatio, avgLoserRatio, … }` |
-| `computeRMultiples(trades)` | `{ avgR, avgWinR, avgLossR, distribution, … }` or `null` if no riskAmount set |
+| `computeRMultiples(trades)` | `{ avgR, avgWinR, avgLossR, distribution, … }` or `null` if no stopPrice set |
+| `computeTradeR(trade)` | Single trade R-multiple as a number, or `null` if stopPrice not set |
 | `fmtPnL(v)` | `"+$1,234.56"` or `"-$567.89"` |
 | `pnlColor(v)` | `"text-profit"` / `"text-loss"` / `"text-muted"` Tailwind class |
-| `formatDuration(sec)` | `"4m 30s"` / `"1h 12m"` / `"—"` |
+| `formatDuration(sec)` | `"4m 30s"` / `"1h 12m"` / `"—"` — rounds to whole seconds |
 | `toDateStr(d)` | `"YYYY-MM-DD"` from a Date object |
 
 **`computeMetrics` returns:**
@@ -159,6 +173,26 @@ All pure — take an array of trades, return computed data. No store access.
   curW, curL,       // current streak (only one will be > 0)
   avgDuration,      // seconds
 }
+```
+
+**R-multiple formula:**
+```js
+// computeTradeR(trade) — works for both long and short
+const stopDist = trade.entryPrice - trade.stopPrice  // positive for long, negative for short
+return (trade.exitPrice - trade.entryPrice) / stopDist
+// qty and point value cancel out — it's a pure price ratio
+```
+
+**Session time blocks (SESSIONS constant in metrics.js):**
+```
+Pre-Market   < 9:30
+9:30–10:30   h >= 9.5  && h < 10.5
+10:30–11:30  h >= 10.5 && h < 11.5
+11:30–12:30  h >= 11.5 && h < 12.5
+12:30–1:30   h >= 12.5 && h < 13.5
+1:30–2:30    h >= 13.5 && h < 14.5
+2:30–4:00    h >= 14.5 && h < 16
+After Hours  h >= 16
 ```
 
 ---
@@ -193,12 +227,15 @@ The column mapper UI lets you override any mapping before confirming the import.
 - 10 KPI cards in a responsive 5-column grid
 - Full-width equity curve (AreaChart)
 - Monthly P&L bar chart (2/3 width) + Win/Loss summary card (1/3)
+- Sessions bar chart (8 time blocks)
 - Bottom row: Day of Week avg P&L, Hour of Day avg P&L, P&L Distribution
 
 ### Trade Log (`pages/Trades.jsx`)
 - Filters: symbol search, side (long/short), win/loss, tag
 - All columns sortable (click header — toggles asc/desc)
 - 50 trades per page with pagination
+- R column — shows R-multiple if `stopPrice` is set on trade
+- Score column — execution score badge
 - Click any row → opens `TradeDrawer`
 
 ### Calendar (`pages/Calendar.jsx`)
@@ -209,15 +246,24 @@ The column mapper UI lets you override any mapping before confirming the import.
 - Monthly summary row: Month P&L, Total Trades, Trading Days, Green Days %
 
 ### Analytics (`pages/Analytics.jsx`)
-Eight tabs:
-1. **By Symbol** — bar chart + stats table per instrument
-2. **By Setup/Tag** — same layout grouped by trade tags
-3. **Sessions** — Pre-Market / AM (9:30–11) / Midday / PM (14–16) / After Hours
+Nine tabs:
+1. **By Symbol** — bar chart + full stats table per instrument
+2. **By Setup/Tag** — same layout grouped by trade tags (shows Avg Win + Avg Loss)
+3. **Time Analysis** — two tables: (a) 8 hourly time blocks with full metrics; (b) Day of Week with full metrics
 4. **Long vs Short** — side-by-side stat breakdown + comparison bar chart
-5. **Psychology** — By mood chart/table, by execution score chart/table, Followed Plan vs Broke Rules comparison
+5. **Psychology** — By mood chart/table, by execution score chart/table, Followed Plan vs Broke Rules
 6. **MAE/MFE** — Capture rate KPIs + distribution chart + entry cleanliness + stop placement analysis
-7. **R-Multiple** — KPI cards + R distribution chart (empty state shown if no riskAmount data)
-8. **Best & Worst** — top 5 winning and losing trades (shows R if riskAmount set)
+7. **R-Multiple** — KPI cards + distribution chart (empty state if no stopPrice set)
+8. **Patterns** — auto-detects best/worst time block, day of week, setup; flags consistently losing periods (min 3 trades per group, win rate < 40% + negative P&L = red flag)
+9. **Best & Worst** — top 5 winning and losing trades (shows R if stopPrice set)
+
+### AI Report (`pages/Report.jsx`)
+- Generates a full markdown performance report from all current trade data
+- Textarea preview + character count
+- "Copy Report" button (copies to clipboard, turns green with checkmark)
+- 3-step instructions: copy → open claude.ai → paste
+- Period filter affects report content
+- Report ends with a suggested Claude prompt for trade coaching analysis
 
 ### Import (`pages/Import.jsx`)
 Three-step flow: `drop → map → done`
@@ -229,9 +275,9 @@ Three-step flow: `drop → map → done`
 
 ### TradeDrawer (`components/trades/TradeDrawer.jsx`)
 - Slides in from right (420px), backdrop closes it
-- P&L banner with R-multiple shown if `riskAmount` is set
+- P&L banner with R-multiple shown if `stopPrice` is set
 - 8-field detail grid (side, qty, entry, exit, MAE, MFE, duration, commission)
-- **Execution section:** Risk Amount input → shows live R-multiple; Execution Score 1–5 buttons; Followed Plan yes/no; Mistake type pills (only shown when plan not followed)
+- **Execution section:** Stop Price input → shows live R-multiple; Execution Score 1–5 buttons; Followed Plan yes/no; Mistake type pills (only shown when plan not followed)
 - **Psychology section:** Mood pills (Calm/Focused/FOMO/Revenge/Tired/Stressed); Confidence (Low/Medium/High)
 - 15 preset setup tags + custom tag input
 - Notes textarea
@@ -239,15 +285,22 @@ Three-step flow: `drop → map → done`
 
 ---
 
+## Topbar — Export CSV
+
+The `↓ Export` button appears in the topbar when at least one trade is loaded.
+It downloads `tradelog-YYYY-MM-DD.csv` containing all trade fields including notes, tags, mood, stopPrice, executionScore, followedPlan, mistakeType.
+This file can be re-imported later — it will re-map columns via the Import mapper.
+
+---
+
 ## Known Limitations / Next Things to Build
 
-- **R-multiple tracking** — need to add `riskAmount` field at import or manually per trade
+- **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill it
+- **Import duplicate feedback** — mergeUnique silently skips duplicates; the done screen should show "X new + Y skipped"
+- **NT8 live connection** — requires a NinjaScript C# add-on that POSTs to a local server or Supabase on trade close; CSV import is the current workflow
 - **Screenshots per trade** — would need IndexedDB (localStorage has a 5MB limit)
-- **Strategy/playbook filter** — currently tags serve this role; a dedicated `strategy` field would improve the By-Setup analytics
-- **Export to CSV** — let the user export their annotated journal back out
-- **Streak visualization** — a dot-per-trade streak chart (like Edgewonk's) would be a good addition to Analytics
-- **PWA** — `vite-plugin-pwa` for offline use and "Add to Home Screen" on mobile
-- **GCal or broker live sync** — would require OAuth; current design is import-only
+- **Daily log writing** — needed for analytics energy trends / recovery state
+- **PWA** — `vite-plugin-pwa` for offline use
 
 ---
 
@@ -262,14 +315,4 @@ Three-step flow: `drop → map → done`
 
 ---
 
----
-
-## Topbar — Export CSV
-
-The `↓ Export` button appears in the topbar when at least one trade is loaded.
-It downloads `tradelog-YYYY-MM-DD.csv` containing all trade fields including notes, tags, mood, riskAmount, executionScore, followedPlan, mistakeType.
-This file can be re-imported later — it will re-map columns via the Import mapper.
-
----
-
-*Version: 1.1 — Added R-multiples, psychology per trade (mood/confidence/followedPlan/mistake), MAE/MFE dual analysis, sessions breakdown, execution score, and Export CSV.*
+*Version: 1.2 — Stop-price R-multiples, AI Report page, hourly time blocks (9:30–10:30 etc.), DoW full metrics, Patterns tab with auto pattern detection, formatDuration fix.*
