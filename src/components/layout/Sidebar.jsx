@@ -3,6 +3,7 @@ const NAV = [
   { id: 'trades',    icon: '📋', label: 'Trade Log' },
   { id: 'calendar',  icon: '📅', label: 'Calendar' },
   { id: 'analytics', icon: '🔬', label: 'Analytics' },
+  { id: 'journal',   icon: '📓', label: 'Journal' },
   { id: 'report',    icon: '📄', label: 'AI Report' },
   { id: 'import',    icon: '⬆',  label: 'Import CSV' },
 ]

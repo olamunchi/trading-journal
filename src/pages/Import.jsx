@@ -4,13 +4,12 @@ import { useTradeStore } from '../store/tradeStore'
 import { detectColumns, normalizeTrades, FIELD_LABELS } from '../engine/csvParser'
 
 export function Import({ onDone }) {
-  const { addTrades, trades, clearAll } = useTradeStore()
-  const [step, setStep]           = useState('drop') // drop | map | done
-  const [rawRows, setRawRows]     = useState([])
-  const [headers, setHeaders]     = useState([])
-  const [mapping, setMapping]     = useState({})
-  const [importResult, setResult] = useState(null)
-  const [dragging, setDragging]   = useState(false)
+  const { addTrades, trades, clearAll, lastImportStats } = useTradeStore()
+  const [step, setStep]       = useState('drop') // drop | map | done
+  const [rawRows, setRawRows] = useState([])
+  const [headers, setHeaders] = useState([])
+  const [mapping, setMapping] = useState({})
+  const [dragging, setDragging] = useState(false)
 
   function processFile(file) {
     Papa.parse(file, {
@@ -34,12 +33,11 @@ export function Import({ onDone }) {
   function doImport() {
     const normalized = normalizeTrades(rawRows, mapping)
     addTrades(normalized)
-    setResult({ added: normalized.length })
     setStep('done')
   }
 
   function reset() {
-    setStep('drop'); setRawRows([]); setHeaders([]); setMapping({}); setResult(null)
+    setStep('drop'); setRawRows([]); setHeaders([]); setMapping({})
   }
 
   const preview = rawRows.slice(0, 3)
@@ -165,13 +163,30 @@ export function Import({ onDone }) {
       )}
 
       {/* ── STEP 3: Done ── */}
-      {step === 'done' && importResult && (
+      {step === 'done' && lastImportStats && (
         <div className="space-y-5">
           <div className="bg-profit/10 border border-profit/30 rounded-2xl p-12 text-center">
             <div className="text-5xl mb-4">✅</div>
             <div className="text-xl font-bold text-profit mb-2">Import Complete</div>
-            <div className="text-sm text-muted">
-              {importResult.added} trades processed · {trades.length} total in journal
+            <div className="flex items-center justify-center gap-5 mt-3">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-profit">{lastImportStats.added}</div>
+                <div className="text-xs text-muted mt-0.5">new trades added</div>
+              </div>
+              {lastImportStats.skipped > 0 && (
+                <>
+                  <div className="text-border text-xl">·</div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-muted">{lastImportStats.skipped}</div>
+                    <div className="text-xs text-muted mt-0.5">duplicates skipped</div>
+                  </div>
+                </>
+              )}
+              <div className="text-border text-xl">·</div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-slate-300">{trades.length}</div>
+                <div className="text-xs text-muted mt-0.5">total in journal</div>
+              </div>
             </div>
           </div>
           <div className="flex gap-3">

@@ -7,6 +7,7 @@ import { Calendar }  from './pages/Calendar'
 import { Analytics } from './pages/Analytics'
 import { Import }    from './pages/Import'
 import { Report }    from './pages/Report'
+import { Journal }   from './pages/Journal'
 
 export default function App() {
   const [page, setPage] = useState('dashboard')
@@ -21,6 +22,7 @@ export default function App() {
           {page === 'trades'    && <Trades />}
           {page === 'calendar'  && <Calendar />}
           {page === 'analytics' && <Analytics />}
+          {page === 'journal'   && <Journal />}
           {page === 'report'    && <Report />}
           {page === 'import'    && <Import onDone={() => setPage('dashboard')} />}
         </main>

@@ -4,7 +4,10 @@ import { persist } from 'zustand/middleware'
 function mergeUnique(existing, incoming) {
   const keys = new Set(existing.map(t => `${t.instrument}|${t.entryTime}|${t.profit}`))
   const unique = incoming.filter(t => !keys.has(`${t.instrument}|${t.entryTime}|${t.profit}`))
-  return [...existing, ...unique].sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime))
+  return {
+    trades: [...existing, ...unique].sort((a, b) => new Date(a.entryTime) - new Date(b.entryTime)),
+    skipped: incoming.length - unique.length,
+  }
 }
 
 export const useTradeStore = create(
@@ -14,7 +17,12 @@ export const useTradeStore = create(
       periodFilter: 'all',
       sessionOffset: 0,
       dailyLossLimit: null,
-      addTrades: (incoming) => set(state => ({ trades: mergeUnique(state.trades, incoming) })),
+      lastImportStats: null,
+      journalEntries: [],
+      addTrades: (incoming) => set(state => {
+        const { trades, skipped } = mergeUnique(state.trades, incoming)
+        return { trades, lastImportStats: { added: incoming.length - skipped, skipped } }
+      }),
       updateTrade: (id, patch) => set(state => ({
         trades: state.trades.map(t => t.id === id ? { ...t, ...patch } : t),
       })),
@@ -23,6 +31,15 @@ export const useTradeStore = create(
       setPeriodFilter: (f) => set({ periodFilter: f }),
       setSessionOffset: (n) => set({ sessionOffset: n }),
       setDailyLossLimit: (v) => set({ dailyLossLimit: v }),
+      saveJournalEntry: (date, data) => set(state => ({
+        journalEntries: [
+          ...state.journalEntries.filter(e => e.date !== date),
+          { ...data, date },
+        ].sort((a, b) => b.date.localeCompare(a.date)),
+      })),
+      deleteJournalEntry: (date) => set(state => ({
+        journalEntries: state.journalEntries.filter(e => e.date !== date),
+      })),
     }),
     { name: 'tj-v1' }
   )
