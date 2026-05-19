@@ -40,6 +40,7 @@ export function TradeDrawer({ trade, onClose }) {
   const [execScore, setExecScore]     = useState(trade.executionScore || null)
   const [stopPrice, setStopPrice]     = useState(trade.stopPrice || '')
   const [screenshots, setScreenshots] = useState({ context: null, orderflow: null })
+  const [imagesReady, setImagesReady] = useState(false)
   const [lightbox, setLightbox]       = useState(null)
   const [dragOver, setDragOver]       = useState({ context: false, orderflow: false })
   const ctxRef = useRef(null)
@@ -50,8 +51,14 @@ export function TradeDrawer({ trade, onClose }) {
     Promise.all([
       loadImage(`${trade.id}-context`),
       loadImage(`${trade.id}-orderflow`),
-    ]).then(([ctx, of]) => setScreenshots({ context: ctx, orderflow: of }))
+    ]).then(([ctx, of]) => {
+      setScreenshots({ context: ctx, orderflow: of })
+      setImagesReady(true)
+    })
   }, [trade.id])
+
+  // Expands to full-screen 3-column layout once any image is loaded
+  const wideMode = imagesReady && !!(screenshots.context || screenshots.orderflow)
 
   async function handleScreenshot(type, file) {
     if (!file || !file.type.startsWith('image/')) return
@@ -97,299 +104,331 @@ export function TradeDrawer({ trade, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-[420px] bg-surface border-l border-border z-50 flex flex-col overflow-y-auto">
+      <div className="fixed inset-0 bg-black/70 z-40" onClick={onClose} />
 
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
-          <div>
-            <div className="font-bold text-lg">{trade.instrument}</div>
-            <div className="text-xs text-muted mt-0.5">
-              {trade.entryTime ? new Date(trade.entryTime).toLocaleString() : '—'}
+      <div className={`fixed z-50 flex ${wideMode ? 'inset-0' : 'right-0 top-0 h-full'}`}>
+
+        {/* ── Wide mode: two full-height image columns ── */}
+        {wideMode && SCREENSHOT_SLOTS.map(({ type, label }) => (
+          <div key={type} className="flex-1 bg-[#080b0f] flex flex-col border-r border-border/40 min-w-0">
+            <div className="px-5 pt-4 pb-2 flex items-center justify-between flex-shrink-0">
+              <span className="text-xs text-subtle uppercase tracking-wider">{label}</span>
+              {screenshots[type] && (
+                <button
+                  onClick={() => removeScreenshot(type)}
+                  className="text-xs text-subtle hover:text-loss transition-colors"
+                >
+                  Remove
+                </button>
+              )}
             </div>
-          </div>
-          <button onClick={onClose} className="text-muted hover:text-slate-300 text-xl leading-none w-8 h-8 flex items-center justify-center">✕</button>
-        </div>
-
-        <div className="p-5 space-y-6 flex-1">
-
-          {/* P&L Banner */}
-          <div className={`rounded-xl p-4 text-center ${isWin ? 'bg-profit/10 border border-profit/30' : 'bg-loss/10 border border-loss/30'}`}>
-            <div className={`text-3xl font-bold ${isWin ? 'text-profit' : 'text-loss'}`}>{fmtPnL(trade.profit)}</div>
-            {rMultiple !== null && (
-              <div className={`text-base font-semibold mt-1 ${rMultiple >= 0 ? 'text-profit' : 'text-loss'}`}>
-                {rMultiple > 0 ? '+' : ''}{rMultiple.toFixed(2)}R
-              </div>
-            )}
-            <div className="text-xs text-muted mt-1">{isWin ? '✓ Win' : '✗ Loss'}</div>
-          </div>
-
-          {/* Trade details grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            {[
-              ['Side', <span className={`font-semibold ${trade.side === 'long' ? 'text-profit' : 'text-loss'}`}>{(trade.side || '').toUpperCase()}</span>],
-              ['Qty', trade.qty || '—'],
-              ['Entry', trade.entryPrice ? trade.entryPrice.toFixed(4) : '—'],
-              ['Exit', trade.exitPrice ? trade.exitPrice.toFixed(4) : '—'],
-              ['MAE', trade.mae ? <span className="text-loss">-${trade.mae.toFixed(2)}</span> : '—'],
-              ['MFE', trade.mfe ? <span className="text-profit">+${trade.mfe.toFixed(2)}</span> : '—'],
-              ['Duration', formatDuration(trade.duration)],
-              ['Commission', trade.commission ? <span className="text-loss">-${trade.commission.toFixed(2)}</span> : '—'],
-            ].map(([label, val]) => (
-              <div key={label} className="bg-bg rounded-lg p-3">
-                <div className="text-xs text-muted mb-1">{label}</div>
-                <div className="text-sm font-medium">{val}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* ── Execution ────────────────────────────────── */}
-          <div>
-            <div className="text-xs text-muted uppercase tracking-wider mb-3">Execution</div>
-            <div className="space-y-3">
-
-              {/* Stop price → R */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-muted w-28 flex-shrink-0">Stop Price</label>
-                <input
-                  type="number"
-                  value={stopPrice}
-                  onChange={e => setStopPrice(e.target.value)}
-                  placeholder="e.g. 21450"
-                  className="flex-1 bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-slate-300 placeholder-subtle focus:outline-none focus:border-accent"
+            <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+              {screenshots[type] ? (
+                <img
+                  src={screenshots[type]}
+                  alt={label}
+                  className="max-w-full max-h-full object-contain rounded-md cursor-zoom-in"
+                  onClick={() => setLightbox(type)}
                 />
-                {rMultiple !== null && (
-                  <span className={`text-sm font-bold w-16 text-right ${rMultiple >= 0 ? 'text-profit' : 'text-loss'}`}>
-                    {rMultiple > 0 ? '+' : ''}{rMultiple.toFixed(2)}R
-                  </span>
-                )}
-              </div>
+              ) : (
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOver(p => ({ ...p, [type]: true })) }}
+                  onDragLeave={() => setDragOver(p => ({ ...p, [type]: false }))}
+                  onDrop={e => {
+                    e.preventDefault()
+                    setDragOver(p => ({ ...p, [type]: false }))
+                    handleScreenshot(type, e.dataTransfer.files[0])
+                  }}
+                  onClick={() => fileRefs[type].current?.click()}
+                  className={`w-full max-w-xs h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors ${
+                    dragOver[type] ? 'border-accent bg-accent/10' : 'border-border/50 hover:border-accent/50 hover:bg-white/[0.02]'
+                  }`}
+                >
+                  <span className="text-3xl">📷</span>
+                  <span className="text-sm text-muted">Click or drop image</span>
+                </div>
+              )}
+            </div>
+            <input
+              ref={fileRefs[type]}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={e => handleScreenshot(type, e.target.files[0])}
+            />
+          </div>
+        ))}
 
-              {/* Execution score */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-muted w-28 flex-shrink-0">Execution Score</label>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3, 4, 5].map(n => (
-                    <button
-                      key={n}
-                      onClick={() => setExecScore(execScore === n ? null : n)}
-                      title={EXEC_LABELS[n]}
-                      className={`w-8 h-8 rounded-lg text-sm font-bold transition-all ${
-                        execScore === n
-                          ? 'bg-accent text-white'
-                          : 'bg-bg border border-border text-muted hover:border-accent hover:text-accent'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                  {execScore && (
-                    <span className="text-xs text-muted self-center ml-1">{EXEC_LABELS[execScore]}</span>
+        {/* ── Trade details panel (always visible) ── */}
+        <div className={`${wideMode ? 'w-[400px]' : 'w-[420px]'} flex-shrink-0 bg-surface border-l border-border flex flex-col overflow-y-auto`}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between p-5 border-b border-border flex-shrink-0">
+            <div>
+              <div className="font-bold text-lg">{trade.instrument}</div>
+              <div className="text-xs text-muted mt-0.5">
+                {trade.entryTime ? new Date(trade.entryTime).toLocaleString() : '—'}
+              </div>
+            </div>
+            <button onClick={onClose} className="text-muted hover:text-slate-300 text-xl leading-none w-8 h-8 flex items-center justify-center">✕</button>
+          </div>
+
+          <div className="p-5 space-y-6 flex-1">
+
+            {/* P&L Banner */}
+            <div className={`rounded-xl p-4 text-center ${isWin ? 'bg-profit/10 border border-profit/30' : 'bg-loss/10 border border-loss/30'}`}>
+              <div className={`text-3xl font-bold ${isWin ? 'text-profit' : 'text-loss'}`}>{fmtPnL(trade.profit)}</div>
+              {rMultiple !== null && (
+                <div className={`text-base font-semibold mt-1 ${rMultiple >= 0 ? 'text-profit' : 'text-loss'}`}>
+                  {rMultiple > 0 ? '+' : ''}{rMultiple.toFixed(2)}R
+                </div>
+              )}
+              <div className="text-xs text-muted mt-1">{isWin ? '✓ Win' : '✗ Loss'}</div>
+            </div>
+
+            {/* Trade details grid */}
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                ['Side', <span className={`font-semibold ${trade.side === 'long' ? 'text-profit' : 'text-loss'}`}>{(trade.side || '').toUpperCase()}</span>],
+                ['Qty', trade.qty || '—'],
+                ['Entry', trade.entryPrice ? trade.entryPrice.toFixed(4) : '—'],
+                ['Exit', trade.exitPrice ? trade.exitPrice.toFixed(4) : '—'],
+                ['MAE', trade.mae ? <span className="text-loss">-${trade.mae.toFixed(2)}</span> : '—'],
+                ['MFE', trade.mfe ? <span className="text-profit">+${trade.mfe.toFixed(2)}</span> : '—'],
+                ['Duration', formatDuration(trade.duration)],
+                ['Commission', trade.commission ? <span className="text-loss">-${trade.commission.toFixed(2)}</span> : '—'],
+              ].map(([label, val]) => (
+                <div key={label} className="bg-bg rounded-lg p-3">
+                  <div className="text-xs text-muted mb-1">{label}</div>
+                  <div className="text-sm font-medium">{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Execution ────────────────────────────────── */}
+            <div>
+              <div className="text-xs text-muted uppercase tracking-wider mb-3">Execution</div>
+              <div className="space-y-3">
+
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-muted w-28 flex-shrink-0">Stop Price</label>
+                  <input
+                    type="number"
+                    value={stopPrice}
+                    onChange={e => setStopPrice(e.target.value)}
+                    placeholder="e.g. 21450"
+                    className="flex-1 bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-slate-300 placeholder-subtle focus:outline-none focus:border-accent"
+                  />
+                  {rMultiple !== null && (
+                    <span className={`text-sm font-bold w-16 text-right ${rMultiple >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {rMultiple > 0 ? '+' : ''}{rMultiple.toFixed(2)}R
+                    </span>
                   )}
                 </div>
-              </div>
 
-              {/* Followed plan */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-muted w-28 flex-shrink-0">Followed Plan?</label>
-                <div className="flex gap-2">
-                  {[{ v: true, label: '✓ Yes', cls: 'border-profit/40 text-profit hover:bg-profit/10' }, { v: false, label: '✗ No', cls: 'border-loss/40 text-loss hover:bg-loss/10' }].map(({ v, label, cls }) => (
-                    <button
-                      key={String(v)}
-                      onClick={() => setFollowedPlan(followedPlan === v ? null : v)}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all ${
-                        followedPlan === v ? (v ? 'bg-profit/20 border-profit text-profit' : 'bg-loss/20 border-loss text-loss') : `bg-bg ${cls}`
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Mistake type — only if !followedPlan */}
-              {followedPlan === false && (
-                <div className="flex items-start gap-3">
-                  <label className="text-sm text-muted w-28 flex-shrink-0 mt-1">Mistake</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {MISTAKES.map(m => (
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-muted w-28 flex-shrink-0">Execution Score</label>
+                  <div className="flex gap-1.5">
+                    {[1, 2, 3, 4, 5].map(n => (
                       <button
-                        key={m}
-                        onClick={() => setMistakeType(mistakeType === m ? '' : m)}
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                          mistakeType === m
-                            ? 'bg-loss/20 border-loss text-loss'
-                            : 'bg-bg border-border text-muted hover:border-loss hover:text-loss'
+                        key={n}
+                        onClick={() => setExecScore(execScore === n ? null : n)}
+                        title={EXEC_LABELS[n]}
+                        className={`w-8 h-8 rounded-lg text-sm font-bold transition-all ${
+                          execScore === n
+                            ? 'bg-accent text-white'
+                            : 'bg-bg border border-border text-muted hover:border-accent hover:text-accent'
                         }`}
                       >
-                        {m}
+                        {n}
+                      </button>
+                    ))}
+                    {execScore && (
+                      <span className="text-xs text-muted self-center ml-1">{EXEC_LABELS[execScore]}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-muted w-28 flex-shrink-0">Followed Plan?</label>
+                  <div className="flex gap-2">
+                    {[{ v: true, label: '✓ Yes', cls: 'border-profit/40 text-profit hover:bg-profit/10' }, { v: false, label: '✗ No', cls: 'border-loss/40 text-loss hover:bg-loss/10' }].map(({ v, label, cls }) => (
+                      <button
+                        key={String(v)}
+                        onClick={() => setFollowedPlan(followedPlan === v ? null : v)}
+                        className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all ${
+                          followedPlan === v ? (v ? 'bg-profit/20 border-profit text-profit' : 'bg-loss/20 border-loss text-loss') : `bg-bg ${cls}`
+                        }`}
+                      >
+                        {label}
                       </button>
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
 
-          {/* ── Psychology ───────────────────────────────── */}
-          <div>
-            <div className="text-xs text-muted uppercase tracking-wider mb-3">Psychology</div>
-            <div className="space-y-3">
-
-              {/* Mood */}
-              <div>
-                <div className="text-xs text-subtle mb-2">Mood when you entered</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {MOODS.map(m => (
-                    <button
-                      key={m.id}
-                      onClick={() => setMood(mood === m.id ? '' : m.id)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                        mood === m.id
-                          ? 'bg-card border-slate-400 text-slate-200 ring-1 ring-slate-400'
-                          : `bg-bg border ${m.cls}`
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Confidence */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-muted w-28 flex-shrink-0">Confidence</label>
-                <div className="flex gap-2">
-                  {[
-                    { v: 'low',    label: 'Low',    cls: 'border-loss/40 text-loss' },
-                    { v: 'medium', label: 'Medium', cls: 'border-warn/40 text-warn' },
-                    { v: 'high',   label: 'High',   cls: 'border-profit/40 text-profit' },
-                  ].map(({ v, label, cls }) => (
-                    <button
-                      key={v}
-                      onClick={() => setConfidence(confidence === v ? '' : v)}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all ${
-                        confidence === v
-                          ? 'bg-card border-slate-400 text-slate-200'
-                          : `bg-bg ${cls} hover:bg-white/5`
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                {followedPlan === false && (
+                  <div className="flex items-start gap-3">
+                    <label className="text-sm text-muted w-28 flex-shrink-0 mt-1">Mistake</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {MISTAKES.map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setMistakeType(mistakeType === m ? '' : m)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                            mistakeType === m
+                              ? 'bg-loss/20 border-loss text-loss'
+                              : 'bg-bg border-border text-muted hover:border-loss hover:text-loss'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* ── Setup Tags ───────────────────────────────── */}
-          <div>
-            <div className="text-xs text-muted uppercase tracking-wider mb-2">Setup Tags</div>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {PRESET_TAGS.map(tag => (
-                <button
-                  key={tag}
-                  onClick={() => toggleTag(tag)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
-                    tags.includes(tag)
-                      ? 'bg-accent text-white'
-                      : 'bg-bg border border-border text-muted hover:border-accent hover:text-accent'
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                value={customTag}
-                onChange={e => setCustomTag(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addCustomTag()}
-                placeholder="Custom tag…"
-                className="flex-1 bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-slate-300 placeholder-subtle focus:outline-none focus:border-accent"
-              />
-              <button onClick={addCustomTag} className="px-3 py-1.5 bg-card border border-border rounded-md text-sm text-muted hover:text-slate-300 transition-colors">
-                Add
-              </button>
-            </div>
-          </div>
-
-          {/* ── Notes ───────────────────────────────────── */}
-          <div>
-            <div className="text-xs text-muted uppercase tracking-wider mb-2">Notes</div>
-            <textarea
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              placeholder="Entry reason, what happened, lessons learned…"
-              rows={4}
-              className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-slate-300 placeholder-subtle resize-none focus:outline-none focus:border-accent"
-            />
-          </div>
-
-          {/* ── Screenshots ──────────────────────────────── */}
-          <div>
-            <div className="text-xs text-muted uppercase tracking-wider mb-3">Screenshots</div>
-            <div className="grid grid-cols-2 gap-3">
-              {SCREENSHOT_SLOTS.map(({ type, label }) => (
-                <div key={type}>
-                  <div className="text-xs text-subtle mb-1.5">{label}</div>
-                  {screenshots[type] ? (
-                    <div className="relative group">
-                      <img
-                        src={screenshots[type]}
-                        alt={label}
-                        className="w-full h-28 object-cover rounded-lg border border-border cursor-pointer hover:border-accent/50 transition-colors"
-                        onClick={() => setLightbox(type)}
-                      />
+            {/* ── Psychology ───────────────────────────────── */}
+            <div>
+              <div className="text-xs text-muted uppercase tracking-wider mb-3">Psychology</div>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-xs text-subtle mb-2">Mood when you entered</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {MOODS.map(m => (
                       <button
-                        onClick={() => removeScreenshot(type)}
-                        className="absolute top-1.5 right-1.5 w-5 h-5 bg-black/70 hover:bg-black text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
+                        key={m.id}
+                        onClick={() => setMood(mood === m.id ? '' : m.id)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                          mood === m.id
+                            ? 'bg-card border-slate-400 text-slate-200 ring-1 ring-slate-400'
+                            : `bg-bg border ${m.cls}`
+                        }`}
                       >
-                        ✕
+                        {m.label}
                       </button>
-                    </div>
-                  ) : (
-                    <div
-                      onDragOver={e => { e.preventDefault(); setDragOver(p => ({ ...p, [type]: true })) }}
-                      onDragLeave={() => setDragOver(p => ({ ...p, [type]: false }))}
-                      onDrop={e => {
-                        e.preventDefault()
-                        setDragOver(p => ({ ...p, [type]: false }))
-                        handleScreenshot(type, e.dataTransfer.files[0])
-                      }}
-                      onClick={() => fileRefs[type].current?.click()}
-                      className={`h-28 rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
-                        dragOver[type]
-                          ? 'border-accent bg-accent/10'
-                          : 'border-border hover:border-accent/50 hover:bg-white/[0.02]'
-                      }`}
-                    >
-                      <span className="text-lg text-subtle">📷</span>
-                      <span className="text-xs text-subtle text-center leading-tight">Click or drop</span>
-                    </div>
-                  )}
-                  <input
-                    ref={fileRefs[type]}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={e => handleScreenshot(type, e.target.files[0])}
-                  />
+                    ))}
+                  </div>
                 </div>
-              ))}
+
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-muted w-28 flex-shrink-0">Confidence</label>
+                  <div className="flex gap-2">
+                    {[
+                      { v: 'low',    label: 'Low',    cls: 'border-loss/40 text-loss' },
+                      { v: 'medium', label: 'Medium', cls: 'border-warn/40 text-warn' },
+                      { v: 'high',   label: 'High',   cls: 'border-profit/40 text-profit' },
+                    ].map(({ v, label, cls }) => (
+                      <button
+                        key={v}
+                        onClick={() => setConfidence(confidence === v ? '' : v)}
+                        className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all ${
+                          confidence === v
+                            ? 'bg-card border-slate-400 text-slate-200'
+                            : `bg-bg ${cls} hover:bg-white/5`
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* ── Setup Tags ───────────────────────────────── */}
+            <div>
+              <div className="text-xs text-muted uppercase tracking-wider mb-2">Setup Tags</div>
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {PRESET_TAGS.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => toggleTag(tag)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                      tags.includes(tag)
+                        ? 'bg-accent text-white'
+                        : 'bg-bg border border-border text-muted hover:border-accent hover:text-accent'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={customTag}
+                  onChange={e => setCustomTag(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addCustomTag()}
+                  placeholder="Custom tag…"
+                  className="flex-1 bg-bg border border-border rounded-md px-3 py-1.5 text-sm text-slate-300 placeholder-subtle focus:outline-none focus:border-accent"
+                />
+                <button onClick={addCustomTag} className="px-3 py-1.5 bg-card border border-border rounded-md text-sm text-muted hover:text-slate-300 transition-colors">
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* ── Notes ───────────────────────────────────── */}
+            <div>
+              <div className="text-xs text-muted uppercase tracking-wider mb-2">Notes</div>
+              <textarea
+                value={note}
+                onChange={e => setNote(e.target.value)}
+                placeholder="Entry reason, what happened, lessons learned…"
+                rows={4}
+                className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-slate-300 placeholder-subtle resize-none focus:outline-none focus:border-accent"
+              />
+            </div>
+
+            {/* ── Screenshots — narrow mode only ───────────── */}
+            {imagesReady && !wideMode && (
+              <div>
+                <div className="text-xs text-muted uppercase tracking-wider mb-3">Screenshots</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {SCREENSHOT_SLOTS.map(({ type, label }) => (
+                    <div key={type}>
+                      <div className="text-xs text-subtle mb-1.5">{label}</div>
+                      <div
+                        onDragOver={e => { e.preventDefault(); setDragOver(p => ({ ...p, [type]: true })) }}
+                        onDragLeave={() => setDragOver(p => ({ ...p, [type]: false }))}
+                        onDrop={e => {
+                          e.preventDefault()
+                          setDragOver(p => ({ ...p, [type]: false }))
+                          handleScreenshot(type, e.dataTransfer.files[0])
+                        }}
+                        onClick={() => fileRefs[type].current?.click()}
+                        className={`h-28 rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+                          dragOver[type] ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/50 hover:bg-white/[0.02]'
+                        }`}
+                      >
+                        <span className="text-lg text-subtle">📷</span>
+                        <span className="text-xs text-subtle text-center leading-tight">Click or drop</span>
+                      </div>
+                      <input
+                        ref={fileRefs[type]}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => handleScreenshot(type, e.target.files[0])}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
 
-        </div>
-
-        {/* Footer */}
-        <div className="p-5 border-t border-border flex gap-2 flex-shrink-0">
-          <button onClick={save} className="flex-1 py-2 bg-accent hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
-            Save
-          </button>
-          <button onClick={handleDelete} className="px-4 py-2 bg-loss/10 hover:bg-loss/20 text-loss text-sm font-medium rounded-lg border border-loss/30 transition-colors">
-            Delete
-          </button>
+          {/* Footer */}
+          <div className="p-5 border-t border-border flex gap-2 flex-shrink-0">
+            <button onClick={save} className="flex-1 py-2 bg-accent hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+              Save
+            </button>
+            <button onClick={handleDelete} className="px-4 py-2 bg-loss/10 hover:bg-loss/20 text-loss text-sm font-medium rounded-lg border border-loss/30 transition-colors">
+              Delete
+            </button>
+          </div>
         </div>
       </div>
 
