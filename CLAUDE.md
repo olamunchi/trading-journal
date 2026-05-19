@@ -1,6 +1,6 @@
 # TradeLog — NT8 Trading Journal
 
-A local-first trading journal built with Vite + React. No backend, no accounts — all data lives in `localStorage`. Designed to import CSV exports from NinjaTrader 8 and provide full performance analytics.
+A local-first trading journal built with Vite + React. No backend, no accounts — all data lives in `localStorage` (trade data) and IndexedDB (screenshots). Designed to import CSV exports from NinjaTrader 8 and provide full performance analytics.
 
 ---
 
@@ -24,7 +24,7 @@ npm run build
 
 - **GitHub repo:** https://github.com/olamunchi/trading-journal
 - **Hosting:** Vercel — auto-deploys on every push to `main`
-- **Live URL:** https://trading-journal-bbbegmauy-olamunchis-projects.vercel.app
+- **Live URL:** check Vercel dashboard → project → Domains for the stable production URL (each push generates a new immutable deployment URL; the production alias auto-updates)
 - **To deploy:** just `git push` — Vercel auto-deploys from GitHub main branch
 
 ---
@@ -36,6 +36,7 @@ npm run build
 | Framework | Vite + React 19 |
 | Charts | Recharts 2 |
 | State | Zustand + `persist` middleware (localStorage key: `tj-v1`) |
+| Screenshots | IndexedDB (`tj-images-v1`) via `src/services/imageStore.js` |
 | CSV parsing | PapaParse 5 |
 | Styling | Tailwind CSS v3 (custom dark theme — see `tailwind.config.js`) |
 
@@ -57,6 +58,9 @@ src/
 │   ├── reportGenerator.js         # Generates markdown AI coaching report
 │   └── csvParser.js               # Column auto-detection + trade normalization
 │
+├── services/
+│   └── imageStore.js              # IndexedDB wrapper for trade screenshots
+│
 ├── components/
 │   ├── layout/
 │   │   ├── Sidebar.jsx            # Left nav with 7 items
@@ -65,7 +69,7 @@ src/
 │   │   ├── KpiCard.jsx            # Reusable metric card
 │   │   └── ChartCard.jsx          # Reusable chart wrapper card
 │   └── trades/
-│       └── TradeDrawer.jsx        # Right slide-in panel: tags, notes, psychology, stop price
+│       └── TradeDrawer.jsx        # Trade detail panel — narrow or full-screen (see below)
 │
 └── pages/
     ├── Dashboard.jsx              # KPIs + equity curve + all charts
@@ -129,7 +133,43 @@ Every trade stored in Zustand has this shape:
 }
 ```
 
+**Screenshots are NOT stored in the trade object.** They live in IndexedDB keyed as `{tradeId}-context` and `{tradeId}-orderflow`. The trade object has no screenshot fields — presence is determined at runtime by querying IndexedDB.
+
 **Duplicate detection** in `mergeUnique()` (tradeStore.js): key = `instrument|entryTime|profit`. Re-importing the same file won't add duplicates.
+
+---
+
+## Screenshots — IndexedDB (`src/services/imageStore.js`)
+
+localStorage is capped at ~5MB total — not viable for chart images. Screenshots use IndexedDB (`tj-images-v1`, object store `screenshots`).
+
+**API:**
+- `saveImage(key, dataUrl)` — stores a base64 JPEG under `key`
+- `loadImage(key)` — returns the data URL or `null`
+- `deleteImage(key)` — removes one key
+- `deleteTradeImages(tradeId)` — removes both `{tradeId}-context` and `{tradeId}-orderflow`
+- `compressImage(file, maxWidth=1400, quality=0.82)` — resizes via canvas → JPEG (~150–300KB per image)
+
+**Keys:** `{tradeId}-context` and `{tradeId}-orderflow`
+
+Images are saved immediately on upload (not gated by the Save button). Deleting a trade also calls `deleteTradeImages`.
+
+---
+
+## TradeDrawer — Two Layout Modes
+
+**Narrow mode** (no screenshots loaded): 420px right panel slides in. Shows upload slots at the bottom of the form.
+
+**Wide mode** (at least one screenshot loaded): expands to full-screen 3-column layout:
+- Left column: Context Chart image (or upload slot if empty)
+- Middle column: Order Flow Entry image (or upload slot if empty)
+- Right column (400px): all trade detail fields
+
+Uploading the first screenshot auto-triggers wide mode. Removing both images collapses back to narrow. Clicking an image opens a full-screen lightbox. Remove button is visible at the top of each image column in wide mode.
+
+`wideMode = imagesReady && !!(screenshots.context || screenshots.orderflow)`
+
+`imagesReady` is set after the `useEffect` resolves both `loadImage` calls — prevents a layout flash while IndexedDB loads.
 
 ---
 
@@ -273,16 +313,6 @@ Three-step flow: `drop → map → done`
 - "Import N Trades →" button normalizes and merges into store
 - "Clear All Data" button in drop step (with confirmation)
 
-### TradeDrawer (`components/trades/TradeDrawer.jsx`)
-- Slides in from right (420px), backdrop closes it
-- P&L banner with R-multiple shown if `stopPrice` is set
-- 8-field detail grid (side, qty, entry, exit, MAE, MFE, duration, commission)
-- **Execution section:** Stop Price input → shows live R-multiple; Execution Score 1–5 buttons; Followed Plan yes/no; Mistake type pills (only shown when plan not followed)
-- **Psychology section:** Mood pills (Calm/Focused/FOMO/Revenge/Tired/Stressed); Confidence (Low/Medium/High)
-- 15 preset setup tags + custom tag input
-- Notes textarea
-- Save (calls `updateTrade`) / Delete (calls `deleteTrade` with confirmation)
-
 ---
 
 ## Topbar — Export CSV
@@ -291,6 +321,8 @@ The `↓ Export` button appears in the topbar when at least one trade is loaded.
 It downloads `tradelog-YYYY-MM-DD.csv` containing all trade fields including notes, tags, mood, stopPrice, executionScore, followedPlan, mistakeType.
 This file can be re-imported later — it will re-map columns via the Import mapper.
 
+Note: screenshots are stored in IndexedDB and are NOT exported to CSV.
+
 ---
 
 ## Known Limitations / Next Things to Build
@@ -298,7 +330,6 @@ This file can be re-imported later — it will re-map columns via the Import map
 - **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill it
 - **Import duplicate feedback** — mergeUnique silently skips duplicates; the done screen should show "X new + Y skipped"
 - **NT8 live connection** — requires a NinjaScript C# add-on that POSTs to a local server or Supabase on trade close; CSV import is the current workflow
-- **Screenshots per trade** — would need IndexedDB (localStorage has a 5MB limit)
 - **Daily log writing** — needed for analytics energy trends / recovery state
 - **PWA** — `vite-plugin-pwa` for offline use
 
@@ -309,10 +340,11 @@ This file can be re-imported later — it will re-map columns via the Import map
 - Functional components only, no class components
 - Zustand for global state; `useState` for UI-only state (filters, selected row, open drawer)
 - All engine functions in `src/engine/` are pure — no store imports
+- Services in `src/services/` may have side effects (IndexedDB, Drive API, etc.)
 - Tailwind utility classes only — no `App.css` or component CSS files
 - File names lowercase (Windows compatibility)
 - No comments unless the WHY is non-obvious
 
 ---
 
-*Version: 1.2 — Stop-price R-multiples, AI Report page, hourly time blocks (9:30–10:30 etc.), DoW full metrics, Patterns tab with auto pattern detection, formatDuration fix.*
+*Version: 1.3 — Screenshots per trade via IndexedDB. TradeDrawer expands to full-screen 3-column layout when images are present (context chart | order flow | trade details). Narrow drawer retained when no images loaded.*
