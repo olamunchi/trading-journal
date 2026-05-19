@@ -1,6 +1,6 @@
 # TradeLog — NT8 Trading Journal
 
-A local-first trading journal built with Vite + React. No backend, no accounts — all data lives in `localStorage` (trade data) and IndexedDB (screenshots). Designed to import CSV exports from NinjaTrader 8 and provide full performance analytics.
+A local-first trading journal built with Vite + React. No backend, no accounts — all data lives in `localStorage` (trade data + journal) and IndexedDB (screenshots). Designed to import CSV exports from NinjaTrader 8 and provide full performance analytics.
 
 ---
 
@@ -24,7 +24,7 @@ npm run build
 
 - **GitHub repo:** https://github.com/olamunchi/trading-journal
 - **Hosting:** Vercel — auto-deploys on every push to `main`
-- **Live URL:** check Vercel dashboard → project → Domains for the stable production URL (each push generates a new immutable deployment URL; the production alias auto-updates)
+- **Live URL:** check Vercel dashboard → project → Domains for the stable production URL
 - **To deploy:** just `git push` — Vercel auto-deploys from GitHub main branch
 
 ---
@@ -51,7 +51,7 @@ src/
 ├── index.css                      # Tailwind directives + base styles + scrollbar
 │
 ├── store/
-│   └── tradeStore.js              # Zustand store — all trade CRUD + periodFilter
+│   └── tradeStore.js              # Zustand store — all trade CRUD + journal + settings
 │
 ├── engine/
 │   ├── metrics.js                 # Pure analytics functions (no side effects)
@@ -72,10 +72,11 @@ src/
 │       └── TradeDrawer.jsx        # Trade detail panel — narrow or full-screen (see below)
 │
 └── pages/
-    ├── Dashboard.jsx              # KPIs + equity curve + all charts
+    ├── Dashboard.jsx              # KPIs + equity curve + all charts + daily loss limit
     ├── Trades.jsx                 # Filterable/sortable trade table
     ├── Calendar.jsx               # Monthly P&L heatmap
-    ├── Analytics.jsx              # 9-tab analytics view
+    ├── Analytics.jsx              # 10-tab analytics view
+    ├── Journal.jsx                # Daily trading journal (3-column layout)
     ├── Report.jsx                 # AI coaching report — copy/paste to Claude.ai
     └── Import.jsx                 # Drag & drop CSV → column mapper → import
 ```
@@ -123,27 +124,64 @@ Every trade stored in Zustand has this shape:
 
   // — Set manually in TradeDrawer after reviewing the trade —
   stopPrice: number|null,  // Stop price → used to compute R-multiple automatically
-                           // R = (exitPrice - entryPrice) / (entryPrice - stopPrice)
-                           // Works for both longs and shorts (qty/point-value cancel out)
-  executionScore: 1|2|3|4|5|null, // 1=Poor, 2=Below Avg, 3=Neutral, 4=Good, 5=Perfect
+  executionScore: 1|2|3|4|5|null,
   mood: 'calm'|'focused'|'fomo'|'revenge'|'tired'|'stressed'|'',
   confidence: 'low'|'medium'|'high'|'',
   followedPlan: true|false|null,
-  mistakeType: string,     // e.g. 'FOMO Entry', 'Moved Stop', 'Cut Winner', etc.
+  mistakeType: string,
 }
 ```
 
-**Screenshots are NOT stored in the trade object.** They live in IndexedDB keyed as `{tradeId}-context` and `{tradeId}-orderflow`. The trade object has no screenshot fields — presence is determined at runtime by querying IndexedDB.
+## Data Model — Journal Entry
 
-**Duplicate detection** in `mergeUnique()` (tradeStore.js): key = `instrument|entryTime|profit`. Re-importing the same file won't add duplicates.
+```js
+{
+  date: string,            // 'YYYY-MM-DD'
+  // Pre-market
+  bias: 'bullish'|'bearish'|'neutral'|'',
+  keyLevels: string,       // key prices, catalysts, news
+  plan: string,            // today's trading plan
+  // Session state
+  mood: string,            // same values as trade mood
+  energy: 'good'|'tired'|'low'|'overloaded'|'',
+  // Rules checklist
+  rulesChecked: object,    // { [ruleId]: boolean }
+  // Post-session
+  note: string,            // freeform reflection
+}
+```
+
+## Data Model — Trading Rules
+
+```js
+// tradingRules: Array stored in Zustand (global, not per-entry)
+{ id: string, text: string }  // e.g. { id: '1716000000000', text: 'Respect max daily loss' }
+```
+
+**Screenshots are NOT stored in the trade object.** They live in IndexedDB keyed as `{tradeId}-context` and `{tradeId}-orderflow`.
+
+**Duplicate detection** in `mergeUnique()` (tradeStore.js): key = `instrument|entryTime|profit`. Re-importing the same file won't add duplicates. Import result stored in `lastImportStats: { added, skipped }`.
+
+---
+
+## Zustand Store (`src/store/tradeStore.js`)
+
+Key: `tj-v1` (localStorage via persist middleware).
+
+| Field | Type | Description |
+|---|---|---|
+| `trades` | Trade[] | All imported trades |
+| `periodFilter` | string | `all/today/week/month/3m/ytd` |
+| `sessionOffset` | number | Hours to subtract from local time to reach ET (0=ET default) |
+| `dailyLossLimit` | number\|null | Daily loss limit in $ |
+| `lastImportStats` | object\|null | `{ added, skipped }` from last import |
+| `journalEntries` | JournalEntry[] | Sorted descending by date |
+| `tradingRules` | Rule[] | Global user-defined trading rules |
 
 ---
 
 ## Screenshots — IndexedDB (`src/services/imageStore.js`)
 
-localStorage is capped at ~5MB total — not viable for chart images. Screenshots use IndexedDB (`tj-images-v1`, object store `screenshots`).
-
-**API:**
 - `saveImage(key, dataUrl)` — stores a base64 JPEG under `key`
 - `loadImage(key)` — returns the data URL or `null`
 - `deleteImage(key)` — removes one key
@@ -152,112 +190,77 @@ localStorage is capped at ~5MB total — not viable for chart images. Screenshot
 
 **Keys:** `{tradeId}-context` and `{tradeId}-orderflow`
 
-Images are saved immediately on upload (not gated by the Save button). Deleting a trade also calls `deleteTradeImages`.
-
 ---
 
 ## TradeDrawer — Two Layout Modes
 
-**Narrow mode** (no screenshots loaded): 420px right panel slides in. Shows upload slots at the bottom of the form.
+**Narrow mode** (no screenshots): 420px right panel. Upload slots at the bottom of the form.
 
-**Wide mode** (at least one screenshot loaded): expands to full-screen 3-column layout:
-- Left column: Context Chart image (or upload slot if empty)
-- Middle column: Order Flow Entry image (or upload slot if empty)
-- Right column (400px): all trade detail fields
-
-Uploading the first screenshot auto-triggers wide mode. Removing both images collapses back to narrow. Clicking an image opens a full-screen lightbox. Remove button is visible at the top of each image column in wide mode.
+**Wide mode** (any screenshot loaded): full-screen `fixed inset-0`, 3 columns: context | orderflow | trade details (400px).
 
 `wideMode = imagesReady && !!(screenshots.context || screenshots.orderflow)`
 
-`imagesReady` is set after the `useEffect` resolves both `loadImage` calls — prevents a layout flash while IndexedDB loads.
+`imagesReady` is set after the `useEffect` resolves both `loadImage` calls — prevents layout flash.
 
 ---
 
 ## Engine Functions (`src/engine/metrics.js`)
 
-All pure — take an array of trades, return computed data. No store access.
+All pure — take an array of trades, return computed data.
 
 | Function | Returns |
 |---|---|
-| `filterByPeriod(trades, period)` | Filtered array. Period: `all / today / week / month / 3m / ytd` |
-| `computeMetrics(trades)` | Single object with all KPIs (see KPI list below) |
-| `computeEquityCurve(trades)` | `[{ i, date, value, profit }]` sorted by entryTime |
-| `computeMonthly(trades)` | `[{ label, pnl }]` grouped by month |
-| `computeDow(trades)` | `[{ label, count, pnl, ...computeMetrics }]` — 7 days, avg P&L + full metrics per day |
-| `computeHourly(trades)` | `[{ label, pnl, count }]` — hours 06:00–20:00 |
-| `computeDist(trades)` | `[{ label, count, isWin }]` — 20-bucket P&L histogram |
-| `computeBySymbol(trades)` | `[{ sym, ...metrics }]` sorted by netPnL desc |
-| `computeByTag(trades)` | `[{ tag, ...metrics }]` — untagged trades go in "Untagged" |
-| `computeBySession(trades)` | `[{ label, ...metrics }]` — 8 time blocks (Pre-Market / 9:30–10:30 / … / After Hours) |
-| `computeByMood(trades)` | `[{ mood, ...metrics }]` grouped by `t.mood` |
-| `computeByExecScore(trades)` | `[{ score, label, ...metrics }]` for scores 1–5 |
+| `filterByPeriod(trades, period)` | Filtered array |
+| `computeMetrics(trades)` | KPI object (see below) |
+| `computeEquityCurve(trades)` | `[{ i, date, value, profit }]` |
+| `computeMonthly(trades)` | `[{ label, pnl }]` |
+| `computeDow(trades)` | `[{ label, count, pnl, ...metrics }]` — 7 days |
+| `computeHourly(trades)` | `[{ label, pnl, count }]` — hours 06–20 |
+| `computeDist(trades)` | `[{ label, count, isWin }]` — 20-bucket histogram |
+| `computeBySymbol(trades)` | `[{ sym, ...metrics }]` |
+| `computeByTag(trades)` | `[{ tag, ...metrics }]` |
+| `computeBySession(trades, offset)` | `[{ label, ...metrics }]` — 8 ET time blocks |
+| `computeByMood(trades)` | `[{ mood, ...metrics }]` |
+| `computeByConfidence(trades)` | `[{ confidence, ...metrics }]` |
+| `computeByExecScore(trades)` | `[{ score, label, ...metrics }]` |
 | `computeMAEMFE(trades)` | `{ avgCapture, captureBuckets, avgMaeRatio, avgLoserRatio, … }` |
-| `computeRMultiples(trades)` | `{ avgR, avgWinR, avgLossR, distribution, … }` or `null` if no stopPrice set |
-| `computeTradeR(trade)` | Single trade R-multiple as a number, or `null` if stopPrice not set |
-| `fmtPnL(v)` | `"+$1,234.56"` or `"-$567.89"` |
-| `pnlColor(v)` | `"text-profit"` / `"text-loss"` / `"text-muted"` Tailwind class |
-| `formatDuration(sec)` | `"4m 30s"` / `"1h 12m"` / `"—"` — rounds to whole seconds |
-| `toDateStr(d)` | `"YYYY-MM-DD"` from a Date object |
+| `computeRMultiples(trades)` | `{ avgR, avgWinR, avgLossR, distribution, … }` or `null` |
+| `computeTradeR(trade)` | Single trade R-multiple or `null` |
+| `computeDisciplineScore(trades)` | `{ score, ratedCount, totalTrades, components }` or `null` if <3 rated |
+| `fmtPnL(v)` | `"+$1,234.56"` / `"-$567.89"` |
+| `pnlColor(v)` | `"text-profit"` / `"text-loss"` / `"text-muted"` |
+| `formatDuration(sec)` | `"4m 30s"` / `"1h 12m"` / `"—"` |
+| `toDateStr(d)` | `"YYYY-MM-DD"` |
 
-**`computeMetrics` returns:**
-```js
-{
-  total, wins, losses,
-  netPnL, grossProfit, grossLoss,
-  winRate,          // 0–1
-  profitFactor,     // Infinity when grossLoss === 0
-  avgWin, avgLoss, expectancy,
-  totalComm,
-  maxDD,            // max drawdown in $
-  maxW, maxL,       // max consecutive wins/losses
-  curW, curL,       // current streak (only one will be > 0)
-  avgDuration,      // seconds
-}
+**Session time blocks** (ET — `computeBySession` offset param subtracts from local hours):
+```
+Pre-Market   h < 9.5
+9:30–10:30   9.5  ≤ h < 10.5
+10:30–11:30  10.5 ≤ h < 11.5
+11:30–12:30  11.5 ≤ h < 12.5
+12:30–1:30   12.5 ≤ h < 13.5
+1:30–2:30    13.5 ≤ h < 14.5
+2:30–4:00    14.5 ≤ h < 16
+After Hours  h ≥ 16
 ```
 
-**R-multiple formula:**
-```js
-// computeTradeR(trade) — works for both long and short
-const stopDist = trade.entryPrice - trade.stopPrice  // positive for long, negative for short
-return (trade.exitPrice - trade.entryPrice) / stopDist
-// qty and point value cancel out — it's a pure price ratio
-```
+**Session offset guide** (for data with explicit timezone markers):
+- ET (no timezone in CSV, NT8 default) → offset = 0
+- Portugal / UK year-round → offset = 5
+- Central Europe (France/Germany, CET/CEST) → offset = 6
+- Eastern Europe → offset = 7
 
-**Session time blocks (SESSIONS constant in metrics.js):**
-```
-Pre-Market   < 9:30
-9:30–10:30   h >= 9.5  && h < 10.5
-10:30–11:30  h >= 10.5 && h < 11.5
-11:30–12:30  h >= 11.5 && h < 12.5
-12:30–1:30   h >= 12.5 && h < 13.5
-1:30–2:30    h >= 13.5 && h < 14.5
-2:30–4:00    h >= 14.5 && h < 16
-After Hours  h >= 16
-```
+The Time Analysis tab shows a sample conversion hint: "a trade timestamped HH:MM in your data = 9:30–10:30 ET" so the user can verify their setting.
 
 ---
 
 ## CSV Import — Column Auto-Detection (`src/engine/csvParser.js`)
 
-`detectColumns(headers)` fuzzy-matches the CSV headers against known NT8 patterns:
-
-| Field | Patterns it looks for |
-|---|---|
-| `instrument` | instrument, symbol, market, ticker, contract |
-| `side` | market pos., market pos, side, action, direction |
-| `qty` | qty, quantity, contracts, shares |
-| `entryTime` | entry time, entry date, open time, date/time, time |
-| `exitTime` | exit time, close time, exit date |
-| `entryPrice` | entry price, avg entry price, avg. entry price |
-| `exitPrice` | exit price, avg exit price, avg. exit price |
-| `profit` | profit, p&l, pnl, net p&l, net profit, gain/loss |
-| `commission` | commission, fees, comm, fee |
-| `mae` | mae |
-| `mfe` | mfe |
-
-The column mapper UI lets you override any mapping before confirming the import.
+`detectColumns(headers)` fuzzy-matches against known NT8 patterns. The column mapper UI lets you override any mapping before confirming.
 
 **NT8 standard export path:** Control Center → New → Trade Performance → right-click grid → Export → To Excel (CSV)
+
+**Import feedback:** The done screen shows `X new trades added · Y duplicates skipped · Z total in journal`. Duplicates detected by `instrument|entryTime|profit` key.
 
 ---
 
@@ -266,85 +269,87 @@ The column mapper UI lets you override any mapping before confirming the import.
 ### Dashboard (`pages/Dashboard.jsx`)
 - 10 KPI cards in a responsive 5-column grid
 - Full-width equity curve (AreaChart)
-- Monthly P&L bar chart (2/3 width) + Win/Loss summary card (1/3)
-- Sessions bar chart (8 time blocks)
-- Bottom row: Day of Week avg P&L, Hour of Day avg P&L, P&L Distribution
+- Monthly P&L bar chart + Win/Loss summary card
+- Sessions bar chart, Day of Week, Hour of Day, P&L Distribution
+- **Daily loss limit tracker** — inline editable $limit, progress bar turns amber at 70%, red at 100%
 
 ### Trade Log (`pages/Trades.jsx`)
-- Filters: symbol search, side (long/short), win/loss, tag
-- All columns sortable (click header — toggles asc/desc)
-- 50 trades per page with pagination
-- R column — shows R-multiple if `stopPrice` is set on trade
-- Score column — execution score badge
-- Click any row → opens `TradeDrawer`
+- Filters: symbol search, side, win/loss, tag
+- All columns sortable; 50 trades per page
+- R column (if stopPrice set), Score column
+- Click row → opens `TradeDrawer`
 
 ### Calendar (`pages/Calendar.jsx`)
-- Month nav (prev/next)
-- Each day cell: date number + P&L total + trade count
-- Cell background color intensity scales with P&L magnitude (green = profit, red = loss)
-- Click a day → trade detail table appears below
-- Monthly summary row: Month P&L, Total Trades, Trading Days, Green Days %
+- Month nav, daily P&L cells, click day → trade detail table
+- Monthly summary row
 
 ### Analytics (`pages/Analytics.jsx`)
-Nine tabs:
-1. **By Symbol** — bar chart + full stats table per instrument
-2. **By Setup/Tag** — same layout grouped by trade tags (shows Avg Win + Avg Loss)
-3. **Time Analysis** — two tables: (a) 8 hourly time blocks with full metrics; (b) Day of Week with full metrics
-4. **Long vs Short** — side-by-side stat breakdown + comparison bar chart
-5. **Psychology** — By mood chart/table, by execution score chart/table, Followed Plan vs Broke Rules
-6. **MAE/MFE** — Capture rate KPIs + distribution chart + entry cleanliness + stop placement analysis
-7. **R-Multiple** — KPI cards + distribution chart (empty state if no stopPrice set)
-8. **Patterns** — auto-detects best/worst time block, day of week, setup; flags consistently losing periods (min 3 trades per group, win rate < 40% + negative P&L = red flag)
-9. **Best & Worst** — top 5 winning and losing trades (shows R if stopPrice set)
+Ten tabs:
+1. **By Symbol** — bar chart + full stats table
+2. **By Setup/Tag** — grouped by trade tags
+3. **Time Analysis** — session time blocks + day of week; timezone offset dropdown (see offset guide above)
+4. **Long vs Short** — side-by-side breakdown + comparison bar chart
+5. **Psychology** — Discipline Score card + by mood + by execution score + Followed Plan vs Broke Rules
+6. **Emotions** — by mood chart/table + by confidence chart/table + best/worst trading state combos
+7. **MAE/MFE** — MAE vs MFE scatter plot (wins green, losses red) + capture rate KPIs + entry cleanliness + stop placement
+8. **R-Multiple** — KPI cards + distribution chart (empty state if no stopPrice)
+9. **Patterns** — auto-detects best/worst time/day/setup; red-flags consistently losing groups
+10. **Best & Worst** — top 5 winning and losing trades
+
+### Journal (`pages/Journal.jsx`)
+Three-column layout: entry list (left) | form (middle, 500px) | day's trades (right).
+
+**Form sections:**
+1. **Pre-Market Prep** — market bias (📈 Bullish / ↔ Neutral / 📉 Bearish), key levels/catalysts textarea, today's plan textarea
+2. **Session State** — mood + energy selectors
+3. **Rules Checklist** — global user-defined rules (add/delete inline); checkbox per rule per day; X/N followed counter; sidebar shows compliance ratio
+4. **Post-Session Reflection** — freeform notes + click-to-insert prompts
+
+Sidebar list shows: date, bias emoji, mood emoji, rules compliance (X/N).
 
 ### AI Report (`pages/Report.jsx`)
-- Generates a full markdown performance report from all current trade data
-- Textarea preview + character count
-- "Copy Report" button (copies to clipboard, turns green with checkmark)
-- 3-step instructions: copy → open claude.ai → paste
-- Period filter affects report content
-- Report ends with a suggested Claude prompt for trade coaching analysis
+- Generates markdown performance report from current trade data
+- Textarea preview + "Copy Report" button
+- Period filter affects content
 
 ### Import (`pages/Import.jsx`)
 Three-step flow: `drop → map → done`
-- Drag & drop or click-to-browse
-- PapaParse reads CSV with `header: true`
-- Column mapper shows auto-detected mapping + editable dropdowns + live "e.g. X" preview
-- "Import N Trades →" button normalizes and merges into store
-- "Clear All Data" button in drop step (with confirmation)
+- Drag & drop or click-to-browse CSV
+- Column mapper with auto-detection + live preview
+- Done screen: "X new · Y skipped · Z total"
 
 ---
 
 ## Topbar — Export CSV
 
-The `↓ Export` button appears in the topbar when at least one trade is loaded.
-It downloads `tradelog-YYYY-MM-DD.csv` containing all trade fields including notes, tags, mood, stopPrice, executionScore, followedPlan, mistakeType.
-This file can be re-imported later — it will re-map columns via the Import mapper.
+`↓ Export` button downloads `tradelog-YYYY-MM-DD.csv` with all trade fields (notes, tags, mood, stopPrice, executionScore, followedPlan, mistakeType). Re-importable via the Import mapper.
 
-Note: screenshots are stored in IndexedDB and are NOT exported to CSV.
+Screenshots are NOT exported to CSV (IndexedDB only).
 
 ---
 
 ## Known Limitations / Next Things to Build
 
-- **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill it
-- **Import duplicate feedback** — mergeUnique silently skips duplicates; the done screen should show "X new + Y skipped"
-- **NT8 live connection** — requires a NinjaScript C# add-on that POSTs to a local server or Supabase on trade close; CSV import is the current workflow
-- **Daily log writing** — needed for analytics energy trends / recovery state
-- **PWA** — `vite-plugin-pwa` for offline use
+- **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill R-multiple
+- **Trade note search** — search bar in Trade Log that also matches against notes text
+- **Market conditions tag on journal** — single-click: Trending / Ranging / Choppy / News-driven (not yet built)
+- **Streak tracker** — green/red day streaks visible on Calendar
+- **Weekly recap** — a summary journal entry type that auto-pulls week metrics
+- **NT8 live connection** — requires NinjaScript C# add-on; CSV import is the current workflow
+- **PWA** — `vite-plugin-pwa` for offline/installable use
 
 ---
 
 ## Coding Standards
 
 - Functional components only, no class components
-- Zustand for global state; `useState` for UI-only state (filters, selected row, open drawer)
+- Zustand for global state; `useState` for UI-only state
 - All engine functions in `src/engine/` are pure — no store imports
-- Services in `src/services/` may have side effects (IndexedDB, Drive API, etc.)
-- Tailwind utility classes only — no `App.css` or component CSS files
+- Services in `src/services/` may have side effects (IndexedDB)
+- Tailwind utility classes only — no component CSS files
 - File names lowercase (Windows compatibility)
 - No comments unless the WHY is non-obvious
 
 ---
 
-*Version: 1.3 — Screenshots per trade via IndexedDB. TradeDrawer expands to full-screen 3-column layout when images are present (context chart | order flow | trade details). Narrow drawer retained when no images loaded.*
+*Version: 2.0 — Daily journal with pre-market prep, rules checklist, session state, and post-session reflection. MAE/MFE scatter plot. Emotions tab. Discipline Score. Daily loss limit tracker. Import duplicate feedback. Session timezone fix.*
