@@ -19,6 +19,7 @@ export const useTradeStore = create(
       dailyLossLimit: null,
       lastImportStats: null,
       journalEntries: [],
+      tradingRules: [],
       addTrades: (incoming) => set(state => {
         const { trades, skipped } = mergeUnique(state.trades, incoming)
         return { trades, lastImportStats: { added: incoming.length - skipped, skipped } }
@@ -39,6 +40,12 @@ export const useTradeStore = create(
       })),
       deleteJournalEntry: (date) => set(state => ({
         journalEntries: state.journalEntries.filter(e => e.date !== date),
+      })),
+      addTradingRule: (text) => set(state => ({
+        tradingRules: [...state.tradingRules, { id: `${Date.now()}`, text: text.trim() }],
+      })),
+      deleteTradingRule: (id) => set(state => ({
+        tradingRules: state.tradingRules.filter(r => r.id !== id),
       })),
     }),
     { name: 'tj-v1' }
