@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTradeStore } from '../../store/tradeStore'
 import { fmtPnL, formatDuration, computeTradeR } from '../../engine/metrics'
+import { saveImage, loadImage, deleteImage, deleteTradeImages, compressImage } from '../../services/imageStore'
 
 const PRESET_TAGS = [
   'A+ Setup', 'B Setup', 'C Setup',
@@ -22,6 +23,11 @@ const MISTAKES = ['FOMO Entry', 'Revenge Trade', 'Moved Stop', 'Cut Winner', 'Ov
 
 const EXEC_LABELS = { 1: 'Poor', 2: 'Below Avg', 3: 'Neutral', 4: 'Good', 5: 'Perfect' }
 
+const SCREENSHOT_SLOTS = [
+  { type: 'context',   label: 'Context Chart' },
+  { type: 'orderflow', label: 'Order Flow Entry' },
+]
+
 export function TradeDrawer({ trade, onClose }) {
   const { updateTrade, deleteTrade } = useTradeStore()
   const [note, setNote]               = useState(trade.note || '')
@@ -33,6 +39,31 @@ export function TradeDrawer({ trade, onClose }) {
   const [mistakeType, setMistakeType] = useState(trade.mistakeType || '')
   const [execScore, setExecScore]     = useState(trade.executionScore || null)
   const [stopPrice, setStopPrice]     = useState(trade.stopPrice || '')
+  const [screenshots, setScreenshots] = useState({ context: null, orderflow: null })
+  const [lightbox, setLightbox]       = useState(null)
+  const [dragOver, setDragOver]       = useState({ context: false, orderflow: false })
+  const ctxRef = useRef(null)
+  const ofRef  = useRef(null)
+  const fileRefs = { context: ctxRef, orderflow: ofRef }
+
+  useEffect(() => {
+    Promise.all([
+      loadImage(`${trade.id}-context`),
+      loadImage(`${trade.id}-orderflow`),
+    ]).then(([ctx, of]) => setScreenshots({ context: ctx, orderflow: of }))
+  }, [trade.id])
+
+  async function handleScreenshot(type, file) {
+    if (!file || !file.type.startsWith('image/')) return
+    const dataUrl = await compressImage(file)
+    await saveImage(`${trade.id}-${type}`, dataUrl)
+    setScreenshots(prev => ({ ...prev, [type]: dataUrl }))
+  }
+
+  async function removeScreenshot(type) {
+    await deleteImage(`${trade.id}-${type}`)
+    setScreenshots(prev => ({ ...prev, [type]: null }))
+  }
 
   function toggleTag(tag) {
     setTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
@@ -54,7 +85,11 @@ export function TradeDrawer({ trade, onClose }) {
   }
 
   function handleDelete() {
-    if (window.confirm('Delete this trade?')) { deleteTrade(trade.id); onClose() }
+    if (window.confirm('Delete this trade?')) {
+      deleteTradeImages(trade.id)
+      deleteTrade(trade.id)
+      onClose()
+    }
   }
 
   const isWin = trade.profit > 0
@@ -290,6 +325,61 @@ export function TradeDrawer({ trade, onClose }) {
               className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-slate-300 placeholder-subtle resize-none focus:outline-none focus:border-accent"
             />
           </div>
+
+          {/* ── Screenshots ──────────────────────────────── */}
+          <div>
+            <div className="text-xs text-muted uppercase tracking-wider mb-3">Screenshots</div>
+            <div className="grid grid-cols-2 gap-3">
+              {SCREENSHOT_SLOTS.map(({ type, label }) => (
+                <div key={type}>
+                  <div className="text-xs text-subtle mb-1.5">{label}</div>
+                  {screenshots[type] ? (
+                    <div className="relative group">
+                      <img
+                        src={screenshots[type]}
+                        alt={label}
+                        className="w-full h-28 object-cover rounded-lg border border-border cursor-pointer hover:border-accent/50 transition-colors"
+                        onClick={() => setLightbox(type)}
+                      />
+                      <button
+                        onClick={() => removeScreenshot(type)}
+                        className="absolute top-1.5 right-1.5 w-5 h-5 bg-black/70 hover:bg-black text-white rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={e => { e.preventDefault(); setDragOver(p => ({ ...p, [type]: true })) }}
+                      onDragLeave={() => setDragOver(p => ({ ...p, [type]: false }))}
+                      onDrop={e => {
+                        e.preventDefault()
+                        setDragOver(p => ({ ...p, [type]: false }))
+                        handleScreenshot(type, e.dataTransfer.files[0])
+                      }}
+                      onClick={() => fileRefs[type].current?.click()}
+                      className={`h-28 rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors ${
+                        dragOver[type]
+                          ? 'border-accent bg-accent/10'
+                          : 'border-border hover:border-accent/50 hover:bg-white/[0.02]'
+                      }`}
+                    >
+                      <span className="text-lg text-subtle">📷</span>
+                      <span className="text-xs text-subtle text-center leading-tight">Click or drop</span>
+                    </div>
+                  )}
+                  <input
+                    ref={fileRefs[type]}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={e => handleScreenshot(type, e.target.files[0])}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -302,6 +392,27 @@ export function TradeDrawer({ trade, onClose }) {
           </button>
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={screenshots[lightbox]}
+            alt={lightbox === 'context' ? 'Context Chart' : 'Order Flow Entry'}
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg"
+            onClick={e => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center text-lg transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </>
   )
 }
