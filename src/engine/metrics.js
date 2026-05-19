@@ -285,6 +285,15 @@ export function computeRMultiples(trades) {
 }
 
 
+export function computeByConfidence(trades) {
+  const ORDER = ['low', 'medium', 'high']
+  return ORDER.map(key => {
+    const group = trades.filter(t => t.confidence === key)
+    if (!group.length) return null
+    return { confidence: key.charAt(0).toUpperCase() + key.slice(1), ...computeMetrics(group) }
+  }).filter(Boolean)
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 export function formatDuration(sec) {
   if (!sec || sec <= 0) return '—'

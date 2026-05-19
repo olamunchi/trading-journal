@@ -3,7 +3,7 @@ import { BarChart, Bar, Cell, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveCo
 import { useTradeStore } from '../store/tradeStore'
 import {
   filterByPeriod, computeMetrics, computeBySymbol, computeByTag,
-  computeBySession, computeByMood, computeByExecScore, computeDow,
+  computeBySession, computeByMood, computeByExecScore, computeByConfidence, computeDow,
   computeMAEMFE, computeRMultiples, computeTradeR,
   fmtPnL, pnlColor,
 } from '../engine/metrics'
@@ -20,6 +20,7 @@ const TABS = [
   { id: 'session',  label: 'Time Analysis' },
   { id: 'side',     label: 'Long vs Short' },
   { id: 'psych',    label: 'Psychology' },
+  { id: 'emotions', label: 'Emotions' },
   { id: 'maemfe',   label: 'MAE/MFE' },
   { id: 'rmultiple',label: 'R-Multiple' },
   { id: 'patterns', label: 'Patterns' },
@@ -34,8 +35,9 @@ export function Analytics() {
   const bySymbol  = useMemo(() => computeBySymbol(filtered),    [filtered])
   const byTag     = useMemo(() => computeByTag(filtered),       [filtered])
   const bySession = useMemo(() => computeBySession(filtered),   [filtered])
-  const byMood    = useMemo(() => computeByMood(filtered),      [filtered])
-  const byExec    = useMemo(() => computeByExecScore(filtered), [filtered])
+  const byMood    = useMemo(() => computeByMood(filtered),        [filtered])
+  const byConf    = useMemo(() => computeByConfidence(filtered), [filtered])
+  const byExec    = useMemo(() => computeByExecScore(filtered),  [filtered])
   const maemfe    = useMemo(() => computeMAEMFE(filtered),      [filtered])
   const rData     = useMemo(() => computeRMultiples(filtered),  [filtered])
   const longs     = useMemo(() => filtered.filter(t => t.side === 'long'),  [filtered])
@@ -305,6 +307,154 @@ export function Analytics() {
           })()}
         </div>
       )}
+
+      {/* ── Emotions ── */}
+      {tab === 'emotions' && (() => {
+        const noMoodData = byMood.length === 0 || byMood.every(r => r.mood === 'Not logged')
+        const noConfData = byConf.length === 0
+
+        // mood × confidence combo detector (min 2 trades)
+        const combos = {}
+        filtered.forEach(t => {
+          if (!t.mood || !t.confidence) return
+          const key = `${t.mood.charAt(0).toUpperCase() + t.mood.slice(1)} + ${t.confidence} confidence`
+          if (!combos[key]) combos[key] = []
+          combos[key].push(t)
+        })
+        const comboList = Object.entries(combos)
+          .filter(([, v]) => v.length >= 2)
+          .map(([name, ts]) => ({ name, count: ts.length, ...computeMetrics(ts) }))
+          .sort((a, b) => b.expectancy - a.expectancy)
+        const bestState  = comboList[0] ?? null
+        const worstState = comboList[comboList.length - 1] ?? null
+
+        function EmotionTable({ data, nameKey, nameLabel }) {
+          return (
+            <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border">
+                  <tr>{[nameLabel, 'Trades', 'Win %', 'PF', 'Expectancy', 'Net P&L'].map(h => (
+                    <th key={h} className="px-3 py-2 text-left text-xs text-muted uppercase tracking-wider">{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {data.map((r, i) => (
+                    <tr key={i} className="border-b border-border/50 hover:bg-white/[0.02]">
+                      <td className="px-3 py-2.5 font-semibold">{r[nameKey]}</td>
+                      <td className="px-3 py-2.5 text-muted">{r.total}</td>
+                      <td className={`px-3 py-2.5 ${r.winRate >= 0.5 ? 'text-profit' : 'text-loss'}`}>{(r.winRate * 100).toFixed(1)}%</td>
+                      <td className={`px-3 py-2.5 ${r.profitFactor >= 1 ? 'text-profit' : 'text-loss'}`}>{r.profitFactor === Infinity ? '∞' : r.profitFactor.toFixed(2)}</td>
+                      <td className={`px-3 py-2.5 font-medium ${pnlColor(r.expectancy)}`}>{fmtPnL(r.expectancy)}</td>
+                      <td className={`px-3 py-2.5 font-bold ${pnlColor(r.netPnL)}`}>{fmtPnL(r.netPnL)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+
+        return (
+          <div className="space-y-4">
+
+            {/* Mood + Confidence charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+              <ChartCard title="Performance by Mood">
+                {noMoodData
+                  ? <div className="text-muted text-sm py-8 text-center">No mood data yet. Log your mood in the Trade Drawer.</div>
+                  : <>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={byMood}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
+                          <XAxis dataKey="mood" tick={AX} />
+                          <YAxis tick={AX} tickFormatter={v => '$' + v} />
+                          <Tooltip {...TT} formatter={v => [fmtPnL(v), 'Net P&L']} />
+                          <Bar dataKey="netPnL" radius={[4, 4, 0, 0]}>
+                            {byMood.map((e, i) => <Cell key={i} fill={e.netPnL >= 0 ? '#3fb950' : '#f85149'} fillOpacity={0.8} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <EmotionTable data={byMood} nameKey="mood" nameLabel="Mood" />
+                    </>
+                }
+              </ChartCard>
+
+              <ChartCard title="Performance by Confidence">
+                {noConfData
+                  ? <div className="text-muted text-sm py-8 text-center">No confidence data yet. Rate your confidence in the Trade Drawer.</div>
+                  : <>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={byConf}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
+                          <XAxis dataKey="confidence" tick={AX} />
+                          <YAxis tick={AX} tickFormatter={v => '$' + v} />
+                          <Tooltip {...TT} formatter={v => [fmtPnL(v), 'Net P&L']} />
+                          <Bar dataKey="netPnL" radius={[4, 4, 0, 0]}>
+                            {byConf.map((e, i) => <Cell key={i} fill={e.netPnL >= 0 ? '#3fb950' : '#f85149'} fillOpacity={0.8} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <EmotionTable data={byConf} nameKey="confidence" nameLabel="Confidence" />
+                    </>
+                }
+              </ChartCard>
+            </div>
+
+            {/* Best / worst trading state */}
+            {comboList.length >= 2 && (
+              <ChartCard title="Best & Worst Trading State">
+                <div className="text-xs text-muted mb-4">Mood + confidence combos with at least 2 trades — ranked by expectancy</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {[
+                    { state: bestState,  label: '✓ Best State',  border: 'border-profit/30', tag: 'text-profit' },
+                    { state: worstState, label: '✗ Worst State', border: 'border-loss/30',   tag: 'text-loss'   },
+                  ].map(({ state, label, border, tag }) => state && (
+                    <div key={label} className={`bg-bg border rounded-xl p-4 ${border}`}>
+                      <div className={`text-xs font-semibold uppercase tracking-wider mb-1 ${tag}`}>{label}</div>
+                      <div className="font-bold text-slate-200 text-base mb-3">{state.name}</div>
+                      <div className="grid grid-cols-3 gap-3 text-xs">
+                        {[
+                          ['Trades',      state.count,                                        ''],
+                          ['Win Rate',    (state.winRate * 100).toFixed(0) + '%',             state.winRate >= 0.5 ? 'text-profit' : 'text-loss'],
+                          ['Expectancy',  fmtPnL(state.expectancy),                           pnlColor(state.expectancy)],
+                          ['Profit Factor', state.profitFactor === Infinity ? '∞' : state.profitFactor.toFixed(2), state.profitFactor >= 1 ? 'text-profit' : 'text-loss'],
+                          ['Avg Win',     fmtPnL(state.avgWin),                               'text-profit'],
+                          ['Avg Loss',    '-$' + state.avgLoss.toFixed(2),                    'text-loss'],
+                        ].map(([l, v, c]) => (
+                          <div key={l}>
+                            <div className="text-subtle mb-0.5">{l}</div>
+                            <div className={`font-semibold ${c}`}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {comboList.length > 2 && (
+                  <div className="mt-4 space-y-1.5">
+                    {comboList.slice(1, -1).map((s, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm px-3 py-2 rounded-lg bg-bg hover:bg-white/[0.03]">
+                        <span className="text-muted">{s.name} <span className="text-subtle">({s.count}t)</span></span>
+                        <div className="flex gap-4">
+                          <span className={pnlColor(s.expectancy)}>{fmtPnL(s.expectancy)} exp</span>
+                          <span className={s.winRate >= 0.5 ? 'text-profit' : 'text-loss'}>{(s.winRate * 100).toFixed(0)}% WR</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ChartCard>
+            )}
+
+            {(noMoodData && noConfData) && (
+              <div className="text-center py-16 text-muted">
+                Start logging mood and confidence in the Trade Drawer to see emotional state correlations.
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── MAE / MFE ── */}
       {tab === 'maemfe' && (
