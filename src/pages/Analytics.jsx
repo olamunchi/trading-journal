@@ -175,23 +175,38 @@ export function Analytics() {
       {/* ── Time Analysis ── */}
       {tab === 'session' && (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-muted">Data timezone:</span>
-            <select
-              value={sessionOffset}
-              onChange={e => setSessionOffset(Number(e.target.value))}
-              className="bg-card border border-border rounded-md px-2 py-1 text-sm text-slate-300 focus:outline-none focus:border-accent"
-            >
-              <option value={0}>ET (Eastern Time) — default</option>
-              <option value={1}>CT (Central Time, UTC-6/-5)</option>
-              <option value={2}>MT (Mountain Time, UTC-7/-6)</option>
-              <option value={3}>PT (Pacific Time, UTC-8/-7)</option>
-              <option value={5}>GMT / WET (Portugal Winter, UK Winter)</option>
-              <option value={6}>CET (Portugal Summer / Central Europe Winter)</option>
-              <option value={7}>CEST (Central Europe Summer)</option>
-            </select>
-            <span className="text-subtle text-xs">Adjusts session hour classification to match your broker's time</span>
-          </div>
+          {/* Timezone selector */}
+          {(() => {
+            // sample: what local time does a 9:30 ET trade appear as?
+            const sampleLocal = 9.5 + sessionOffset
+            const sampleH = Math.floor(sampleLocal)
+            const sampleM = sampleLocal % 1 === 0.5 ? '30' : '00'
+            const sampleStr = `${String(sampleH % 24).padStart(2, '0')}:${sampleM}`
+            return (
+              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted flex-shrink-0">My NT8 timestamps are in:</span>
+                  <select
+                    value={sessionOffset}
+                    onChange={e => setSessionOffset(Number(e.target.value))}
+                    className="bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                  >
+                    <option value={0}>ET — Eastern Time (US brokers, no timezone in export) ← default</option>
+                    <option value={1}>CT — Central Time (1h behind ET)</option>
+                    <option value={2}>MT — Mountain Time (2h behind ET)</option>
+                    <option value={3}>PT — Pacific Time (3h behind ET)</option>
+                    <option value={5}>Portugal / UK (UTC+1 summer, UTC+0 winter) — year-round</option>
+                    <option value={6}>Central Europe — France, Germany, Spain (UTC+2 summer, UTC+1 winter)</option>
+                    <option value={7}>Eastern Europe — Greece, Romania (UTC+3 summer, UTC+2 winter)</option>
+                  </select>
+                </div>
+                <div className="text-xs text-subtle">
+                  With this setting, a trade timestamped <span className="text-slate-400 font-medium">{sampleStr} in your data</span> will be classified as the <span className="text-accent font-medium">9:30–10:30 ET</span> session.
+                  {sessionOffset !== 0 && <span className="ml-1 text-subtle">· Use ET (0) if your NT8 already shows times in Eastern Time.</span>}
+                </div>
+              </div>
+            )
+          })()}
           <ChartCard title="Performance by Time of Day">
             {bySession.length === 0
               ? <div className="text-muted text-sm py-10 text-center">No session data available.</div>
