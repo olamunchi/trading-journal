@@ -155,8 +155,13 @@ Every trade stored in Zustand has this shape:
 
 ```js
 // tradingRules: Array stored in Zustand (global, not per-entry)
-{ id: string, text: string }  // e.g. { id: '1716000000000', text: 'Respect max daily loss' }
+{ id: string, text: string, link?: string }
+// e.g. { id: 'def-no-dca', text: 'Did not DCA', link: 'https://notion.so/...' }
 ```
+
+**Default rules** — `DEFAULT_TRADING_RULES` in `tradeStore.js` defines 10 mistake-category items from the user's Notion playbook (Move stop, Move targets, Chase, Respect risk, Breaks, Over-trading, DCA, Process, Wrong risk, Copier errors). Each carries the original Notion URL in the `link` field, rendered as a small ↗ icon next to the rule text. All items are phrased positively ("Did not …", "Used correct …") so the existing "followed = good" compliance ratio remains semantically correct.
+
+**Seeding** — Initial store state ships with `tradingRules: [...DEFAULT_TRADING_RULES]` and `defaultRulesSeeded: true`. For users with persisted state predating the defaults, the persist middleware's `onRehydrateStorage` hook seeds the defaults exactly once when `tradingRules.length === 0 && !defaultRulesSeeded`. Users who clear their rules after seeding stay empty — they can re-seed via the "↻ Load default mistake checklist" button visible in the empty-state Journal section, which calls `seedDefaultRules()` (idempotent: skips IDs already present).
 
 **Screenshots are NOT stored in the trade object.** They live in IndexedDB keyed as `{tradeId}-context` and `{tradeId}-orderflow`.
 
@@ -368,5 +373,7 @@ Screenshots are NOT exported to CSV (IndexedDB only).
 `computeTradeR(trade)` in `metrics.js` uses `Math.abs(entry - stop)` for the stop distance and multiplies the price move by `dir` (+1 long / −1 short). A short with entry 100, stop 105, exit 90 correctly returns `+2R`. Without the side flip, shorts were getting opposite-signed R values and were misclassified as winners/losers in the R-multiple distribution.
 
 ---
+
+*Version: 2.2 — Default mistake checklist (10 items from Notion playbook) seeded on first load with ↗ link icons to Notion explanations. `seedDefaultRules()` action + empty-state re-seed button. `addTradingRule(text, link)` now optionally stores a link.*
 
 *Version: 2.1 — Timezone autodetect for session classifier (Intl.DateTimeFormat → ET offset). Session labels rewritten to 24h ET (no more AM/PM ambiguity). All trade-row time displays forced to 24h. Dashboard session chart now respects `sessionOffset`. R-multiple sign fixed for shorts. Calendar day cells show W/L split. Trade Log shows "Showing N of M · period: X" with clear button. CSV column mappings persist per header signature.*

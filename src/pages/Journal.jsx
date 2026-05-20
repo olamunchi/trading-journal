@@ -34,7 +34,7 @@ function SectionHeader({ icon, title }) {
 export function Journal() {
   const {
     journalEntries, saveJournalEntry, deleteJournalEntry,
-    tradingRules, addTradingRule, deleteTradingRule,
+    tradingRules, addTradingRule, deleteTradingRule, seedDefaultRules,
     trades,
   } = useTradeStore()
 
@@ -326,12 +326,20 @@ export function Journal() {
             </div>
 
             {tradingRules.length === 0 && !editingRules && (
-              <button
-                onClick={() => { setEditingRules(true); setTimeout(() => ruleInputRef.current?.focus(), 50) }}
-                className="w-full py-4 border border-dashed border-border rounded-xl text-sm text-subtle hover:text-muted hover:border-accent/40 transition-colors text-center"
-              >
-                + Add your trading rules — e.g. "Respect max daily loss", "Only A-setups"
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={seedDefaultRules}
+                  className="w-full py-3 border border-accent/40 bg-accent/10 hover:bg-accent/15 rounded-xl text-sm text-accent transition-colors text-center"
+                >
+                  ↻ Load default mistake checklist (10 items, with Notion links)
+                </button>
+                <button
+                  onClick={() => { setEditingRules(true); setTimeout(() => ruleInputRef.current?.focus(), 50) }}
+                  className="w-full py-3 border border-dashed border-border rounded-xl text-sm text-subtle hover:text-muted hover:border-accent/40 transition-colors text-center"
+                >
+                  + Add your own trading rules
+                </button>
+              </div>
             )}
 
             {tradingRules.length > 0 && (
@@ -353,6 +361,18 @@ export function Journal() {
                     <span className={`text-sm flex-1 ${rulesChecked[r.id] ? 'text-muted line-through' : 'text-slate-300'}`}>
                       {r.text}
                     </span>
+                    {r.link && (
+                      <a
+                        href={r.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open Notion reference"
+                        onClick={e => e.stopPropagation()}
+                        className="text-subtle hover:text-accent transition-colors text-xs flex-shrink-0"
+                      >
+                        ↗
+                      </a>
+                    )}
                     {editingRules && (
                       <button
                         onClick={() => deleteTradingRule(r.id)}
