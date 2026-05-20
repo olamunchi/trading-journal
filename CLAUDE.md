@@ -232,25 +232,32 @@ All pure — take an array of trades, return computed data.
 | `formatDuration(sec)` | `"4m 30s"` / `"1h 12m"` / `"—"` |
 | `toDateStr(d)` | `"YYYY-MM-DD"` |
 
-**Session time blocks** (ET — `computeBySession` offset param subtracts from local hours):
+**Session time blocks** (24h ET — `computeBySession` offset param subtracts from local hours):
 ```
-Pre-Market   h < 9.5
-9:30–10:30   9.5  ≤ h < 10.5
-10:30–11:30  10.5 ≤ h < 11.5
-11:30–12:30  11.5 ≤ h < 12.5
-12:30–1:30   12.5 ≤ h < 13.5
-1:30–2:30    13.5 ≤ h < 14.5
-2:30–4:00    14.5 ≤ h < 16
-After Hours  h ≥ 16
+Pre-Market     h < 9.5
+09:30–10:30    9.5  ≤ h < 10.5
+10:30–11:30    10.5 ≤ h < 11.5
+11:30–12:30    11.5 ≤ h < 12.5
+12:30–13:30    12.5 ≤ h < 13.5
+13:30–14:30    13.5 ≤ h < 14.5
+14:30–16:00    14.5 ≤ h < 16
+After Hours    h ≥ 16
 ```
 
-**Session offset guide** (for data with explicit timezone markers):
+All labels are 24h ET so afternoon sessions can't be misread as AM.
+
+**Session offset autodetect** — `detectSessionOffset()` in `metrics.js` reads the browser's IANA timezone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) and computes hours between the user's local time and `America/New_York`. The store initializes `sessionOffset` from this on first load; `sessionOffsetAuto: true` flag tracks whether the user has overridden it. The Analytics tab shows the detected zone ("Auto-detected from your PC: Europe/Lisbon · ET offset +0h") with a "↻ Use auto-detected" button when the user has overridden the value.
+
+**Session offset reference** (for data with explicit timezone markers):
 - ET (no timezone in CSV, NT8 default) → offset = 0
-- Portugal / UK year-round → offset = 5
+- UK / Portugal winter (GMT) → offset = 5
+- UK / Portugal summer (BST/WEST) → offset = 5
 - Central Europe (France/Germany, CET/CEST) → offset = 6
 - Eastern Europe → offset = 7
 
-The Time Analysis tab shows a sample conversion hint: "a trade timestamped HH:MM in your data = 9:30–10:30 ET" so the user can verify their setting.
+The Time Analysis tab shows a sample conversion hint: "a trade timestamped HH:MM in your data = 09:30–10:30 ET" so the user can verify their setting.
+
+**Time display format** — All trade time displays use 24h (`hour12: false`) for consistency with the ET session blocks. Applied in Trades.jsx, Calendar.jsx, Journal.jsx, and reportGenerator.js.
 
 ---
 
@@ -261,6 +268,8 @@ The Time Analysis tab shows a sample conversion hint: "a trade timestamped HH:MM
 **NT8 standard export path:** Control Center → New → Trade Performance → right-click grid → Export → To Excel (CSV)
 
 **Import feedback:** The done screen shows `X new trades added · Y duplicates skipped · Z total in journal`. Duplicates detected by `instrument|entryTime|profit` key.
+
+**Mapping persistence** — `Import.jsx` calls `headerSignature(headers)` (lowercase, sorted, joined with `|`) and looks it up in `state.csvMappings`. Same-signature CSVs recall the prior mapping; a banner shows "Mapping restored from a previous import with the same columns." The mapping is re-saved on import so subsequent edits stick. Recall is skipped if any saved column no longer exists in the new file (protects against partial renames).
 
 ---
 
@@ -278,9 +287,11 @@ The Time Analysis tab shows a sample conversion hint: "a trade timestamped HH:MM
 - All columns sortable; 50 trades per page
 - R column (if stopPrice set), Score column
 - Click row → opens `TradeDrawer`
+- Toolbar shows `Showing N of M trades · period: <label>` with an inline "clear" button when the topbar period filter is anything other than All Time — so the user knows when results are being narrowed by a non-local filter.
 
 ### Calendar (`pages/Calendar.jsx`)
 - Month nav, daily P&L cells, click day → trade detail table
+- Each day cell shows: net P&L, W/L split (e.g. `3W · 1L`)
 - Monthly summary row
 
 ### Analytics (`pages/Analytics.jsx`)
@@ -352,4 +363,10 @@ Screenshots are NOT exported to CSV (IndexedDB only).
 
 ---
 
-*Version: 2.0 — Daily journal with pre-market prep, rules checklist, session state, and post-session reflection. MAE/MFE scatter plot. Emotions tab. Discipline Score. Daily loss limit tracker. Import duplicate feedback. Session timezone fix.*
+## R-Multiple Sign Convention
+
+`computeTradeR(trade)` in `metrics.js` uses `Math.abs(entry - stop)` for the stop distance and multiplies the price move by `dir` (+1 long / −1 short). A short with entry 100, stop 105, exit 90 correctly returns `+2R`. Without the side flip, shorts were getting opposite-signed R values and were misclassified as winners/losers in the R-multiple distribution.
+
+---
+
+*Version: 2.1 — Timezone autodetect for session classifier (Intl.DateTimeFormat → ET offset). Session labels rewritten to 24h ET (no more AM/PM ambiguity). All trade-row time displays forced to 24h. Dashboard session chart now respects `sessionOffset`. R-multiple sign fixed for shorts. Calendar day cells show W/L split. Trade Log shows "Showing N of M · period: X" with clear button. CSV column mappings persist per header signature.*

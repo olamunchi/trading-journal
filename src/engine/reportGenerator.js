@@ -235,7 +235,7 @@ export function generateReport(trades, periodFilter) {
       const dt = t.entryTime ? new Date(t.entryTime) : null
       return [
         dt ? dt.toLocaleDateString() : '—',
-        dt ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+        dt ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '—',
         t.instrument,
         (t.side || '').toUpperCase(),
         dollar(t.profit),

@@ -5,7 +5,7 @@ import {
   filterByPeriod, computeMetrics, computeBySymbol, computeByTag,
   computeBySession, computeByMood, computeByExecScore, computeByConfidence, computeDisciplineScore, computeDow,
   computeMAEMFE, computeRMultiples, computeTradeR,
-  fmtPnL, pnlColor,
+  fmtPnL, pnlColor, detectSessionOffset, detectTimezoneName,
 } from '../engine/metrics'
 import { ChartCard } from '../components/ui/ChartCard'
 
@@ -28,8 +28,10 @@ const TABS = [
 ]
 
 export function Analytics() {
-  const { trades, periodFilter, sessionOffset, setSessionOffset } = useTradeStore()
+  const { trades, periodFilter, sessionOffset, sessionOffsetAuto, setSessionOffset, resetSessionOffsetAuto } = useTradeStore()
   const [tab, setTab] = useState('symbol')
+  const detectedOffset = detectSessionOffset()
+  const detectedTz     = detectTimezoneName()
 
   const filtered  = useMemo(() => filterByPeriod(trades, periodFilter), [trades, periodFilter])
   const bySymbol  = useMemo(() => computeBySymbol(filtered),    [filtered])
@@ -179,11 +181,26 @@ export function Analytics() {
           {(() => {
             // sample: what local time does a 9:30 ET trade appear as?
             const sampleLocal = 9.5 + sessionOffset
-            const sampleH = Math.floor(sampleLocal)
+            const sampleH = Math.floor(((sampleLocal % 24) + 24) % 24)
             const sampleM = sampleLocal % 1 === 0.5 ? '30' : '00'
-            const sampleStr = `${String(sampleH % 24).padStart(2, '0')}:${sampleM}`
+            const sampleStr = `${String(sampleH).padStart(2, '0')}:${sampleM}`
+            const overridden = !sessionOffsetAuto && sessionOffset !== detectedOffset
             return (
               <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <span>Auto-detected from your PC:</span>
+                  <span className="text-slate-300 font-medium">{detectedTz}</span>
+                  <span className="text-subtle">·</span>
+                  <span className="text-accent font-medium">ET offset {detectedOffset >= 0 ? '+' : ''}{detectedOffset}h</span>
+                  {overridden && (
+                    <button
+                      onClick={resetSessionOffsetAuto}
+                      className="ml-auto text-xs text-accent hover:text-blue-400 transition-colors"
+                    >
+                      ↻ Use auto-detected
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-muted flex-shrink-0">My NT8 timestamps are in:</span>
                   <select
@@ -191,18 +208,18 @@ export function Analytics() {
                     onChange={e => setSessionOffset(Number(e.target.value))}
                     className="bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
                   >
-                    <option value={0}>ET — Eastern Time (US brokers, no timezone in export) ← default</option>
+                    <option value={0}>ET — Eastern Time (US brokers, no timezone in export)</option>
                     <option value={1}>CT — Central Time (1h behind ET)</option>
                     <option value={2}>MT — Mountain Time (2h behind ET)</option>
                     <option value={3}>PT — Pacific Time (3h behind ET)</option>
-                    <option value={5}>Portugal / UK (UTC+1 summer, UTC+0 winter) — year-round</option>
-                    <option value={6}>Central Europe — France, Germany, Spain (UTC+2 summer, UTC+1 winter)</option>
-                    <option value={7}>Eastern Europe — Greece, Romania (UTC+3 summer, UTC+2 winter)</option>
+                    <option value={4}>UK / Portugal — winter (GMT, ET+5)</option>
+                    <option value={5}>UK / Portugal — summer (BST/WEST, ET+5)</option>
+                    <option value={6}>Central Europe — France, Germany, Spain (ET+6)</option>
+                    <option value={7}>Eastern Europe — Greece, Romania (ET+7)</option>
                   </select>
                 </div>
                 <div className="text-xs text-subtle">
-                  With this setting, a trade timestamped <span className="text-slate-400 font-medium">{sampleStr} in your data</span> will be classified as the <span className="text-accent font-medium">9:30–10:30 ET</span> session.
-                  {sessionOffset !== 0 && <span className="ml-1 text-subtle">· Use ET (0) if your NT8 already shows times in Eastern Time.</span>}
+                  With this setting, a trade timestamped <span className="text-slate-400 font-medium">{sampleStr} in your data</span> will be classified as the <span className="text-accent font-medium">09:30–10:30 ET</span> session. All times below are in 24h ET.
                 </div>
               </div>
             )

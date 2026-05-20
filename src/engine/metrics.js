@@ -150,17 +150,46 @@ export function computeByTag(trades) {
   return Object.entries(byT).map(([tag, ts]) => ({ tag, ...computeMetrics(ts) })).sort((a, b) => b.netPnL - a.netPnL)
 }
 
-// ── NEW: Sessions ─────────────────────────────────────────────────────────────
+// ── Sessions (labels in 24h ET) ───────────────────────────────────────────────
 const SESSIONS = [
-  { label: 'Pre-Market',  test: h => h < 9.5 },
-  { label: '9:30–10:30',  test: h => h >= 9.5  && h < 10.5 },
-  { label: '10:30–11:30', test: h => h >= 10.5 && h < 11.5 },
-  { label: '11:30–12:30', test: h => h >= 11.5 && h < 12.5 },
-  { label: '12:30–1:30',  test: h => h >= 12.5 && h < 13.5 },
-  { label: '1:30–2:30',   test: h => h >= 13.5 && h < 14.5 },
-  { label: '2:30–4:00',   test: h => h >= 14.5 && h < 16 },
-  { label: 'After Hours', test: h => h >= 16 },
+  { label: 'Pre-Market',    test: h => h < 9.5 },
+  { label: '09:30–10:30',   test: h => h >= 9.5  && h < 10.5 },
+  { label: '10:30–11:30',   test: h => h >= 10.5 && h < 11.5 },
+  { label: '11:30–12:30',   test: h => h >= 11.5 && h < 12.5 },
+  { label: '12:30–13:30',   test: h => h >= 12.5 && h < 13.5 },
+  { label: '13:30–14:30',   test: h => h >= 13.5 && h < 14.5 },
+  { label: '14:30–16:00',   test: h => h >= 14.5 && h < 16 },
+  { label: 'After Hours',   test: h => h >= 16 },
 ]
+
+// Detects the user's IANA timezone from the browser and computes the offset
+// (in hours) between local time and Eastern Time (America/New_York). Returns
+// a positive integer — the number of hours to subtract from local hours to
+// reach ET. Falls back to 0 (ET) if detection fails.
+export function detectSessionOffset() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (!tz || tz === 'America/New_York') return 0
+    const now = new Date()
+    // Local hour-of-day vs ET hour-of-day, both as numeric strings.
+    const localHour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(now))
+    const etHour    = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(now))
+    let diff = localHour - etHour
+    if (diff < -12) diff += 24
+    if (diff > 12)  diff -= 24
+    return diff
+  } catch {
+    return 0
+  }
+}
+
+export function detectTimezoneName() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
 
 export function computeBySession(trades, offset = 0) {
   const buckets = SESSIONS.map(s => ({ label: s.label, test: s.test, trades: [] }))
@@ -254,9 +283,10 @@ export function computeMAEMFE(trades) {
 // ── NEW: R-Multiples ──────────────────────────────────────────────────────────
 export function computeTradeR(trade) {
   if (!trade.stopPrice || !trade.entryPrice || !trade.exitPrice) return null
-  const stopDist = trade.entryPrice - trade.stopPrice
+  const stopDist = Math.abs(trade.entryPrice - trade.stopPrice)
   if (stopDist === 0) return null
-  return (trade.exitPrice - trade.entryPrice) / stopDist
+  const dir = trade.side === 'short' ? -1 : 1
+  return ((trade.exitPrice - trade.entryPrice) * dir) / stopDist
 }
 
 export function computeRMultiples(trades) {

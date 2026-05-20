@@ -19,7 +19,7 @@ const TT = {
 const AX = { stroke: '#6e7681', fontSize: 11 }
 
 export function Dashboard() {
-  const { trades, periodFilter, dailyLossLimit, setDailyLossLimit } = useTradeStore()
+  const { trades, periodFilter, sessionOffset, dailyLossLimit, setDailyLossLimit } = useTradeStore()
   const [editingLimit, setEditingLimit] = useState(false)
   const [limitInput, setLimitInput]     = useState('')
   const filtered = useMemo(() => filterByPeriod(trades, periodFilter), [trades, periodFilter])
@@ -36,7 +36,7 @@ export function Dashboard() {
   const dw = useMemo(() => computeDow(filtered),        [filtered])
   const hr = useMemo(() => computeHourly(filtered),     [filtered])
   const ds  = useMemo(() => computeDist(filtered),       [filtered])
-  const ses = useMemo(() => computeBySession(filtered),  [filtered])
+  const ses = useMemo(() => computeBySession(filtered, sessionOffset), [filtered, sessionOffset])
 
   if (!m) {
     return (

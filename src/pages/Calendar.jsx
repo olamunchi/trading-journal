@@ -18,9 +18,11 @@ export function Calendar() {
       const d = new Date(t.entryTime)
       if (d.getMonth() !== month || d.getFullYear() !== year) return
       const k = toDateStr(d)
-      if (!m[k]) m[k] = { pnl: 0, count: 0, trades: [] }
+      if (!m[k]) m[k] = { pnl: 0, count: 0, wins: 0, losses: 0, trades: [] }
       m[k].pnl += t.profit
       m[k].count++
+      if (t.profit > 0) m[k].wins++
+      else if (t.profit < 0) m[k].losses++
       m[k].trades.push(t)
     })
     return m
@@ -102,7 +104,11 @@ export function Calendar() {
                     <div className={`text-[9px] font-semibold mt-0.5 ${info.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
                       {info.pnl >= 0 ? '+' : ''}{info.pnl.toFixed(0)}
                     </div>
-                    <div className="text-[8px] text-subtle">{info.count}t</div>
+                    <div className="text-[8px] text-subtle leading-tight">
+                      <span className="text-profit">{info.wins}W</span>
+                      <span className="mx-0.5">·</span>
+                      <span className="text-loss">{info.losses}L</span>
+                    </div>
                   </>
                 )}
               </div>
@@ -149,7 +155,7 @@ export function Calendar() {
                 {dayInfo.trades.map(t => (
                   <tr key={t.id} className="border-b border-border/50">
                     <td className="px-4 py-2 text-muted text-xs">
-                      {t.entryTime ? new Date(t.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {t.entryTime ? new Date(t.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
                     </td>
                     <td className="px-4 py-2 font-semibold">{t.instrument}</td>
                     <td className="px-4 py-2">

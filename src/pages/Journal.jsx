@@ -452,7 +452,7 @@ export function Journal() {
                     <div className="font-semibold text-slate-200">{t.instrument}</div>
                     <div className="text-xs text-muted mt-0.5">
                       {t.side?.toUpperCase() ?? '—'} · {t.qty} contracts
-                      {t.entryTime && ` · ${new Date(t.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                      {t.entryTime && ` · ${new Date(t.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`}
                       {t.duration ? ` · ${formatDuration(t.duration)}` : ''}
                     </div>
                   </div>

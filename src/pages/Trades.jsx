@@ -5,8 +5,17 @@ import { TradeDrawer } from '../components/trades/TradeDrawer'
 
 const PAGE_SIZE = 50
 
+const PERIOD_LABELS = {
+  all:   'All Time',
+  today: 'Today',
+  week:  'This Week',
+  month: 'This Month',
+  '3m':  'Last 3 Months',
+  ytd:   'This Year',
+}
+
 export function Trades() {
-  const { trades, periodFilter } = useTradeStore()
+  const { trades, periodFilter, setPeriodFilter } = useTradeStore()
   const [search, setSearch]           = useState('')
   const [sideFilter, setSideFilter]   = useState('')
   const [resultFilter, setResult]     = useState('')
@@ -90,7 +99,19 @@ export function Trades() {
               {allTags.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
-          <span className="ml-auto text-xs text-muted">{filtered.length} trades</span>
+          <span className="ml-auto text-xs text-muted">
+            Showing <span className="text-slate-300 font-medium">{filtered.length.toLocaleString()}</span> of <span className="text-slate-300 font-medium">{trades.length.toLocaleString()}</span> trades
+            <span className="text-subtle"> · period: </span>
+            <span className="text-slate-300">{PERIOD_LABELS[periodFilter] || periodFilter}</span>
+            {periodFilter !== 'all' && (
+              <button
+                onClick={() => { setPeriodFilter('all'); setPage(0) }}
+                className="ml-2 text-accent hover:text-blue-400 transition-colors"
+              >
+                clear
+              </button>
+            )}
+          </span>
         </div>
 
         {/* Table */}
@@ -131,7 +152,7 @@ export function Trades() {
                   >
                     <td className="px-4 py-2.5 text-muted text-xs whitespace-nowrap">
                       {dt
-                        ? <>{dt.toLocaleDateString()}<br /><span className="text-subtle">{dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></>
+                        ? <>{dt.toLocaleDateString()}<br /><span className="text-subtle">{dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span></>
                         : '—'}
                     </td>
                     <td className="px-4 py-2.5 font-semibold">{t.instrument}</td>
