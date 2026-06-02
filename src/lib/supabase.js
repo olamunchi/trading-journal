@@ -41,17 +41,19 @@ export function rowToTrade(r) {
   }
 }
 
-// Fetches all trades from Supabase, oldest first. Returns [] if no backend
-// is configured or the request fails — never throws into the UI.
+// Fetches all trades from Supabase, oldest first. Returns null when no backend
+// is configured or the request fails, so callers can tell "backend says empty"
+// (→ reconcile/remove) apart from "no backend / couldn't reach it" (→ leave the
+// local cache untouched). Never throws into the UI.
 export async function fetchTrades() {
-  if (!supabase) return []
+  if (!supabase) return null
   const { data, error } = await supabase
     .from('trades')
     .select('*')
     .order('entry_time', { ascending: true })
   if (error) {
     console.error('[supabase] fetchTrades failed:', error.message)
-    return []
+    return null
   }
   return data.map(rowToTrade)
 }

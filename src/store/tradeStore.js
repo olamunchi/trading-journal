@@ -48,13 +48,18 @@ export const useTradeStore = create(
         const { trades, skipped } = mergeUnique(state.trades, incoming)
         return { trades, lastImportStats: { added: incoming.length - skipped, skipped } }
       }),
-      // Pulls NT8-synced trades from Supabase and merges them in. mergeUnique
-      // keeps the existing record on a collision, so any notes/tags the user
-      // added locally survive a re-sync. No-op when no backend is configured.
+      // Reconciles NT8-synced trades against Supabase: the backend is the source
+      // of truth for source:'nt8' trades, so a trade deleted in Supabase also
+      // disappears here. Local-only trades (CSV imports, manual entries) are kept.
+      // No-op when no backend is configured or the fetch fails (fetchTrades→null),
+      // so a transient network error never wipes the local cache.
       syncFromBackend: async () => {
-        const incoming = await fetchTrades()
-        if (!incoming.length) return
-        set(state => ({ trades: mergeUnique(state.trades, incoming).trades }))
+        const backend = await fetchTrades()
+        if (backend === null) return
+        set(state => {
+          const localKept = state.trades.filter(t => t.source !== 'nt8')
+          return { trades: mergeUnique(localKept, backend).trades }
+        })
       },
       updateTrade: (id, patch) => set(state => ({
         trades: state.trades.map(t => t.id === id ? { ...t, ...patch } : t),
