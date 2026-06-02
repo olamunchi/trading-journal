@@ -344,6 +344,145 @@ Screenshots are NOT exported to CSV (IndexedDB only).
 
 ---
 
+## NT8 Live Sync
+
+Trades executed in MADSnowball appear in the journal automatically on position close. No CSV export needed.
+
+### Architecture
+
+```
+NinjaTrader 8 (local Windows)
+  └─ MADSnowball.cs → OnPositionUpdate (position goes flat)
+       └─ HTTP POST  →  https://<journal>.vercel.app/api/trades
+                              │  validates X-NT8-Secret header
+                              │  writes to Supabase
+                              ▼
+                        Supabase (PostgreSQL)
+                              │
+                              ▼
+                        React journal (reads from Supabase on load)
+```
+
+### Component 1 — NT8 NinjaScript (MADSnowball.cs)
+
+Add to existing strategy — no separate AddOn needed.
+
+**Trigger**: `OnPositionUpdate` when `position.MarketPosition == MarketPosition.Flat`. At that point `SystemPerformance.AllTrades` contains the completed trade.
+
+**Key constraints**:
+- `Task.Run` + `HttpClient` — fire and forget, never block `OnPositionUpdate`
+- `[NinjaScriptProperty] string JournalWebhookUrl` — defaults to prod Vercel URL
+- `[NinjaScriptProperty] string JournalWebhookSecret` — set in strategy properties panel
+- Guard: `if (State != State.Realtime && State != State.Playback) return` — no historical fire
+
+**How to read the completed trade**:
+```csharp
+var t = SystemPerformance.AllTrades[SystemPerformance.AllTrades.Count - 1];
+// t.Entry.Price, t.Exit.Price, t.Entry.Time, t.Exit.Time, t.Entry.Quantity
+// t.Entry.MarketPosition == MarketPosition.Long → side = "long"
+// t.ProfitCurrency = net P&L in account currency
+```
+
+**Payload** (JSON POST body — field names match the journal's trade object):
+```json
+{
+  "instrument": "NQ 09-25",
+  "side": "long",
+  "qty": 2,
+  "entryPrice": 21500.25,
+  "exitPrice": 21585.50,
+  "entryTime": "2026-06-02T14:35:00Z",
+  "exitTime": "2026-06-02T15:10:00Z",
+  "profit": 1700.00,
+  "commission": 8.00,
+  "strategyName": "MADSnowball",
+  "account": "Sim101"
+}
+```
+
+### Component 2 — Vercel API Route (`api/trades.js`)
+
+Lives at repo root (not inside `src/`). Vercel routes `/api/trades` here automatically.
+
+1. Validate `X-NT8-Secret` header against `process.env.NT8_WEBHOOK_SECRET`
+2. Validate required fields (instrument, side, entryPrice, exitPrice, entryTime, exitTime, profit)
+3. Generate `id` as `${new Date(exitTime).getTime()}-nt8` (matches store's id format, dedupes re-sends)
+4. Insert into Supabase `trades` table using the service role key
+5. Return `{ id }` on 200, error + status on failure
+
+**Dependency**: `npm install @supabase/supabase-js`
+
+**Vercel environment variables** (never committed — set in Vercel dashboard):
+```
+NT8_WEBHOOK_SECRET=<random 32-char hex>   # must match NT8 strategy property
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_SERVICE_KEY=<service role key>   # NOT anon key — bypasses RLS
+```
+
+### Component 3 — Frontend (`src/store/tradeStore.js`)
+
+**Migration**: Add Supabase as a second trade source alongside localStorage.
+
+- `src/lib/supabase.js` — singleton client using the **anon key** (public, safe to ship)
+- On store hydration: fetch `trades` from Supabase, merge with localStorage trades via existing `mergeUnique()`
+- NT8-sourced trades come in with `source: 'nt8'` to distinguish from imported ones
+- localStorage remains the write path for journal entries, session gate, Spielfeld fields
+
+**Frontend environment variables** (`.env.local` locally + Vercel dashboard for prod):
+```
+VITE_SUPABASE_URL=https://<project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon/public key>
+```
+
+### Database schema (Supabase)
+
+```sql
+create table trades (
+  id             text primary key,          -- same format as store: "${ms}-nt8"
+  created_at     timestamptz default now(),
+
+  -- matches the journal Trade object exactly
+  instrument     text not null,
+  side           text not null check (side in ('long','short')),
+  qty            int not null,
+  entry_price    numeric not null,
+  exit_price     numeric not null,
+  entry_time     timestamptz not null,
+  exit_time      timestamptz not null,
+  profit         numeric not null,
+  commission     numeric default 0,
+  mae            numeric,
+  mfe            numeric,
+  strategy_name  text,
+  account        text,
+
+  -- filled later by user in the journal (nullable)
+  note           text,
+  tags           text[],
+  stop_price     numeric,
+  execution_score int,
+  mood           text,
+  confidence     text,
+  followed_plan  boolean,
+  mistake_type   text,
+  denisenko      jsonb
+);
+
+alter table trades enable row level security;
+create policy "anon read" on trades for select using (true);
+-- Inserts and updates only via service key from Vercel, never from browser
+```
+
+### Implementation phases
+
+1. **Supabase setup** — create project, run schema SQL, copy service key + anon key
+2. **Vercel endpoint** — write `api/trades.js`, set env vars, deploy, test with curl
+3. **NT8 webhook** — add properties + `OnPositionUpdate` block to MADSnowball.cs, compile, test on Playback, verify row in Supabase
+4. **Frontend reads Supabase** — add `src/lib/supabase.js`, update `tradeStore.js` to merge on load
+5. **Realtime (optional)** — Supabase realtime subscription so filled trade appears without page reload
+
+---
+
 ## Known Limitations / Next Things to Build
 
 - **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill R-multiple
@@ -351,7 +490,6 @@ Screenshots are NOT exported to CSV (IndexedDB only).
 - **Market conditions tag on journal** — single-click: Trending / Ranging / Choppy / News-driven (not yet built)
 - **Streak tracker** — green/red day streaks visible on Calendar
 - **Weekly recap** — a summary journal entry type that auto-pulls week metrics
-- **NT8 live connection** — requires NinjaScript C# add-on; CSV import is the current workflow
 - **PWA** — `vite-plugin-pwa` for offline/installable use
 
 ---

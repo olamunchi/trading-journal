@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar }   from './components/layout/Sidebar'
 import { Topbar }    from './components/layout/Topbar'
 import { Dashboard } from './pages/Dashboard'
@@ -8,9 +8,14 @@ import { Analytics } from './pages/Analytics'
 import { Import }    from './pages/Import'
 import { Report }    from './pages/Report'
 import { Journal }   from './pages/Journal'
+import { useTradeStore } from './store/tradeStore'
 
 export default function App() {
   const [page, setPage] = useState('dashboard')
+  const syncFromBackend = useTradeStore(s => s.syncFromBackend)
+
+  // Pull NT8-synced trades once on load. Safe no-op without a backend.
+  useEffect(() => { syncFromBackend() }, [syncFromBackend])
 
   return (
     <div className="flex h-screen bg-bg overflow-hidden text-slate-300">

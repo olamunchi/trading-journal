@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { detectSessionOffset } from '../engine/metrics'
+import { fetchTrades } from '../lib/supabase'
 
 // Mistake categories from the user's Notion playbook — phrased positively
 // so the existing "followed = good" rules-checklist semantics still work.
@@ -47,6 +48,14 @@ export const useTradeStore = create(
         const { trades, skipped } = mergeUnique(state.trades, incoming)
         return { trades, lastImportStats: { added: incoming.length - skipped, skipped } }
       }),
+      // Pulls NT8-synced trades from Supabase and merges them in. mergeUnique
+      // keeps the existing record on a collision, so any notes/tags the user
+      // added locally survive a re-sync. No-op when no backend is configured.
+      syncFromBackend: async () => {
+        const incoming = await fetchTrades()
+        if (!incoming.length) return
+        set(state => ({ trades: mergeUnique(state.trades, incoming).trades }))
+      },
       updateTrade: (id, patch) => set(state => ({
         trades: state.trades.map(t => t.id === id ? { ...t, ...patch } : t),
       })),
