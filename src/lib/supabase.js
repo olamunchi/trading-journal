@@ -57,3 +57,11 @@ export async function fetchTrades() {
   }
   return data.map(rowToTrade)
 }
+
+// Permanently deletes a trade from Supabase (needs the anon-delete RLS policy).
+// No-op when no backend is configured or the id isn't a backend row.
+export async function deleteTradeRemote(id) {
+  if (!supabase) return
+  const { error } = await supabase.from('trades').delete().eq('id', id)
+  if (error) console.error('[supabase] delete failed:', error.message)
+}

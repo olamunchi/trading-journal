@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { detectSessionOffset } from '../engine/metrics'
-import { fetchTrades } from '../lib/supabase'
+import { fetchTrades, deleteTradeRemote } from '../lib/supabase'
 
 // Mistake categories from the user's Notion playbook — phrased positively
 // so the existing "followed = good" rules-checklist semantics still work.
@@ -64,7 +64,12 @@ export const useTradeStore = create(
       updateTrade: (id, patch) => set(state => ({
         trades: state.trades.map(t => t.id === id ? { ...t, ...patch } : t),
       })),
-      deleteTrade: (id) => set(state => ({ trades: state.trades.filter(t => t.id !== id) })),
+      // Removes locally and from Supabase, so the delete sticks across refreshes
+      // (otherwise the backend reconcile would pull the trade right back).
+      deleteTrade: (id) => {
+        deleteTradeRemote(id)
+        set(state => ({ trades: state.trades.filter(t => t.id !== id) }))
+      },
       clearAll: () => set({ trades: [] }),
       setPeriodFilter: (f) => set({ periodFilter: f }),
       setSessionOffset: (n) => set({ sessionOffset: n, sessionOffsetAuto: false }),
