@@ -41,3 +41,24 @@ alter table trades enable row level security;
 
 drop policy if exists "anon read" on trades;
 create policy "anon read" on trades for select using (true);
+
+-- Prop-firm challenge attempts for PropTraderAccountTool (NT8 indicator). One row per
+-- attempt on an account; exactly one open row (ended_at is null) per account at a time.
+-- api/prop-summary.js scopes its trade replay to [started_at, now) of the current open
+-- attempt; api/challenge-attempt-close.js closes the open attempt and opens the next one
+-- the moment NT8 detects a pass or fail, so the next trade counts toward a fresh attempt.
+create table if not exists challenge_attempts (
+  id          bigserial primary key,
+  account     text not null,
+  started_at  timestamptz not null,
+  ended_at    timestamptz,
+  outcome     text check (outcome in ('passed','failed')),
+  created_at  timestamptz default now()
+);
+
+create index if not exists challenge_attempts_account_idx on challenge_attempts (account, started_at);
+
+alter table challenge_attempts enable row level security;
+
+drop policy if exists "anon read" on challenge_attempts;
+create policy "anon read" on challenge_attempts for select using (true);
