@@ -517,6 +517,36 @@ create policy "anon delete" on trades for delete using (true);  -- one-click del
 
 ---
 
+## PLANNED — NT8 Auto Screenshot Capture (scoped July 2026, not started)
+
+**Goal**: Context Chart and Order Flow Entry screenshots auto-attach to a trade the moment it appears in the journal, the same way trade data already auto-syncs via MADSnowball — no manual save-then-drag-drop.
+
+**Status**: Design-only. Nothing built. This is meaningfully harder than the trade-data sync (see below), so don't start coding until the open questions at the bottom are answered.
+
+**Current state it replaces**: Screenshots today live *only* in the browser's IndexedDB (`src/services/imageStore.js`, keys `{tradeId}-context` / `{tradeId}-orderflow`) — there is no cloud image storage at all. They're uploaded manually via drag-drop or file-picker in `TradeDrawer.jsx`.
+
+**Why this is a bigger lift than `PostTradeToJournal`:**
+1. **No screenshot API in NinjaScript.** Capturing a chart means rendering its WPF `ChartControl` directly to a `RenderTargetBitmap`, called on the UI thread via `Dispatcher.Invoke` — not the strategy's background thread. Known-possible (NT8 community add-ons do this), but riskier code than a plain `HttpWebRequest` POST: done wrong, UI-thread work can block or crash the chart.
+2. **New cloud infrastructure required**, since NT8 can't write into a browser's IndexedDB — it can only POST over HTTP, so the image has to land somewhere cloud-side first:
+   - A Supabase Storage bucket (natural choice — already using Supabase for trade data)
+   - A new endpoint, e.g. `api/trade-images.js`, mirroring `api/trades.js`'s `X-NT8-Secret` auth: accepts `{ tradeKey, slot: 'context'|'orderflow', imageBase64 }`, uploads, returns a URL
+   - Frontend: `imageStore.js` needs a `fetchRemoteImage(key)` that hits the endpoint when IndexedDB has no local copy, and caches the result locally after first fetch — same "reconcile from backend, cache on the way in" shape `syncFromBackend` already uses for trades.
+3. **Timing mismatch**: a trade only gets its final id (`nt8-{entryMs}-{exitMs}`) at position-flat (close) — that's *why* `PostTradeToJournal` fires on close, not entry (see MADSnowball's fill-aggregation notes above). But the screenshots you'd want are from entry. So NT8-side, the capture has to happen at entry, get cached in memory keyed by the same `entryCnt`/order-name convention MADSnowball already uses to aggregate fills, and only get uploaded once the trade closes and its real id exists.
+4. **Which physical chart is which slot is genuinely unresolved** — "Context Chart" and "Order Flow Entry" are two different chart windows (e.g. a higher-timeframe context chart vs. a footprint/order-flow chart), and NinjaScript strategies only get direct access to the `ChartControl` of the chart they're attached to. Capturing a *different* open chart window means enumerating NT8's open chart windows and picking the right one — not just "grab my own chart."
+
+**Rough shape once the open questions below are answered:**
+1. Supabase Storage bucket for screenshots.
+2. `api/trade-images.js` — validated upload endpoint, upsert semantics (a re-sent capture shouldn't duplicate).
+3. MADSnowball.cs — on entry, render the relevant chart(s) to bitmaps via `Dispatcher.Invoke`, hold in memory keyed by `entryCnt`; on the existing close/flat path, POST the cached images tagged with the trade's final id.
+4. `imageStore.js` / `TradeDrawer.jsx` — try IndexedDB first, fall back to the new endpoint, cache on success.
+
+**Open questions — need the user's answer before writing any code:**
+- Does "Context Chart" mean the same chart MADSnowball runs on, or always a separate chart window? Same question for "Order Flow Entry."
+- Capture at entry only, or also at exit (for a before/after comparison)?
+- Image size/quality tradeoff — affects POST payload size and Supabase Storage usage on the free tier.
+
+---
+
 ## Known Limitations / Next Things to Build
 
 - **Stop price per instrument default** — currently set manually per trade; a default stop per instrument would auto-fill R-multiple
