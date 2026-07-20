@@ -1,8 +1,13 @@
 import { useState, useMemo } from 'react'
+import { ChevronLeft, ChevronRight, Flame } from 'lucide-react'
 import { useTradeStore } from '../store/tradeStore'
-import { toDateStr, fmtPnL, pnlColor } from '../engine/metrics'
+import { toDateStr, fmtPnL, pnlColor, computeDayStreak } from '../engine/metrics'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// rgb values of theme profit/loss — keep in sync with tailwind.config.js
+const PROFIT_RGB = '52,211,153'
+const LOSS_RGB   = '220,61,81'
 
 export function Calendar() {
   const { trades } = useTradeStore()
@@ -28,6 +33,8 @@ export function Calendar() {
     return m
   }, [trades, year, month])
 
+  const streak = useMemo(() => computeDayStreak(trades), [trades])
+
   function prev() {
     if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1)
     setSelectedDay(null)
@@ -44,6 +51,18 @@ export function Calendar() {
   const todayStr    = toDateStr(today)
   const dayInfo     = selectedDay ? byDay[selectedDay] : null
 
+  // Weeks as rows: each row = 7 day slots (day number or null)
+  const weeks = useMemo(() => {
+    const out = []
+    let week = Array(firstDay).fill(null)
+    for (let day = 1; day <= daysInMonth; day++) {
+      week.push(day)
+      if (week.length === 7) { out.push(week); week = [] }
+    }
+    if (week.length) out.push([...week, ...Array(7 - week.length).fill(null)])
+    return out
+  }, [firstDay, daysInMonth])
+
   const summaryData = useMemo(() => {
     if (!Object.keys(byDay).length) return null
     const monthPnL    = Object.values(byDay).reduce((s, v) => s + v.pnl, 0)
@@ -53,64 +72,97 @@ export function Calendar() {
     return { monthPnL, monthTrades, tradingDays, greenDays }
   }, [byDay])
 
+  const keyFor = day => `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
   return (
     <div className="p-6 space-y-4">
       {/* Month nav */}
       <div className="flex items-center gap-3">
-        <button onClick={prev} className="px-3 py-1.5 bg-card border border-border rounded-md text-sm text-muted hover:text-slate-300 transition-colors">
-          ← Prev
+        <button onClick={prev} className="flex items-center gap-1 px-3 py-1.5 bg-card border border-border rounded-lg text-sm text-muted hover:text-slate-300 transition-colors">
+          <ChevronLeft size={15} /> Prev
         </button>
         <h2 className="text-base font-semibold text-slate-200 flex-1 text-center">{monthLabel}</h2>
-        <button onClick={next} className="px-3 py-1.5 bg-card border border-border rounded-md text-sm text-muted hover:text-slate-300 transition-colors">
-          Next →
+        <button onClick={next} className="flex items-center gap-1 px-3 py-1.5 bg-card border border-border rounded-lg text-sm text-muted hover:text-slate-300 transition-colors">
+          Next <ChevronRight size={15} />
         </button>
       </div>
 
-      {/* Calendar grid */}
-      <div className="bg-card border border-border rounded-xl p-4">
-        <div className="grid grid-cols-7 mb-2">
+      {/* Calendar grid — 7 day columns + weekly total column */}
+      <div className="bg-card border border-border rounded-xl p-4 shadow-card">
+        <div className="grid gap-1.5 mb-1.5" style={{ gridTemplateColumns: 'repeat(7, 1fr) 0.9fr' }}>
           {DAYS.map(d => <div key={d} className="text-center text-xs text-muted py-1">{d}</div>)}
+          <div className="text-center text-xs font-semibold text-subtle py-1 uppercase tracking-wider">Week</div>
         </div>
-        <div className="grid grid-cols-7 gap-1">
-          {Array.from({ length: firstDay }).map((_, i) => <div key={'e' + i} />)}
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const day = i + 1
-            const k   = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-            const info = byDay[k]
-            const isToday    = k === todayStr
-            const isSelected = k === selectedDay
-            const intensity  = info ? Math.min(Math.abs(info.pnl) / maxAbs, 1) : 0
 
+        <div className="space-y-1.5">
+          {weeks.map((week, wi) => {
+            const weekDays = week.filter(Boolean).map(keyFor).filter(k => byDay[k])
+            const weekPnL   = weekDays.reduce((s, k) => s + byDay[k].pnl, 0)
+            const weekCount = weekDays.reduce((s, k) => s + byDay[k].count, 0)
             return (
-              <div
-                key={k}
-                onClick={() => setSelectedDay(k === selectedDay ? null : k)}
-                className={`rounded-lg p-1.5 text-center cursor-pointer transition-all select-none hover:brightness-125
-                  ${isSelected ? 'ring-2 ring-accent' : ''}
-                  ${isToday && !isSelected ? 'ring-1 ring-accent/50' : ''}`}
-                style={{
-                  background: info
-                    ? info.pnl >= 0
-                      ? `rgba(63,185,80,${0.1 + intensity * 0.4})`
-                      : `rgba(248,81,73,${0.1 + intensity * 0.4})`
-                    : 'rgba(255,255,255,0.02)',
-                }}
-              >
-                <div className={`text-xs font-medium ${isToday ? 'text-accent' : info ? 'text-slate-300' : 'text-subtle'}`}>
-                  {day}
+              <div key={wi} className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(7, 1fr) 0.9fr' }}>
+                {week.map((day, di) => {
+                  if (!day) return <div key={di} className="min-h-[76px] rounded-lg bg-white/[0.015]" />
+                  const k    = keyFor(day)
+                  const info = byDay[k]
+                  const isToday    = k === todayStr
+                  const isSelected = k === selectedDay
+                  const intensity  = info ? Math.min(Math.abs(info.pnl) / maxAbs, 1) : 0
+
+                  return (
+                    <div
+                      key={k}
+                      onClick={() => setSelectedDay(k === selectedDay ? null : k)}
+                      className={`min-h-[76px] rounded-lg p-2 cursor-pointer transition-all select-none hover:brightness-125 flex flex-col
+                        ${isSelected ? 'ring-2 ring-accent' : ''}
+                        ${isToday && !isSelected ? 'ring-1 ring-accent/50' : ''}`}
+                      style={{
+                        background: info
+                          ? info.pnl >= 0
+                            ? `rgba(${PROFIT_RGB},${0.08 + intensity * 0.3})`
+                            : `rgba(${LOSS_RGB},${0.08 + intensity * 0.3})`
+                          : 'rgba(255,255,255,0.02)',
+                      }}
+                    >
+                      <div className={`text-xs font-medium ${isToday ? 'text-accent' : info ? 'text-slate-300' : 'text-subtle'}`}>
+                        {day}
+                      </div>
+                      {info && (
+                        <div className="flex-1 flex flex-col items-center justify-center">
+                          <div className={`text-sm font-bold ${info.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {info.pnl >= 0 ? '+' : '-'}${Math.abs(info.pnl).toFixed(0)}
+                          </div>
+                          <div className="text-[10px] text-subtle mt-0.5">
+                            {info.count} {info.count === 1 ? 'trade' : 'trades'} · <span className="text-profit">{info.wins}W</span> <span className="text-loss">{info.losses}L</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Weekly total */}
+                <div
+                  className="min-h-[76px] rounded-lg p-2 flex flex-col items-center justify-center border border-border/60"
+                  style={{
+                    background: weekCount
+                      ? weekPnL >= 0
+                        ? `rgba(${PROFIT_RGB},0.06)`
+                        : `rgba(${LOSS_RGB},0.06)`
+                      : 'transparent',
+                  }}
+                >
+                  {weekCount > 0 ? (
+                    <>
+                      <div className={`text-sm font-bold ${weekPnL >= 0 ? 'text-profit' : 'text-loss'}`}>
+                        {weekPnL >= 0 ? '+' : '-'}${Math.abs(weekPnL).toFixed(0)}
+                      </div>
+                      <div className="text-[10px] text-subtle mt-0.5">{weekCount} trades · {weekDays.length} days</div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-subtle">—</div>
+                  )}
                 </div>
-                {info && (
-                  <>
-                    <div className={`text-[9px] font-semibold mt-0.5 ${info.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-                      {info.pnl >= 0 ? '+' : ''}{info.pnl.toFixed(0)}
-                    </div>
-                    <div className="text-[8px] text-subtle leading-tight">
-                      <span className="text-profit">{info.wins}W</span>
-                      <span className="mx-0.5">·</span>
-                      <span className="text-loss">{info.losses}L</span>
-                    </div>
-                  </>
-                )}
               </div>
             )
           })}
@@ -119,7 +171,7 @@ export function Calendar() {
 
       {/* Monthly summary */}
       {summaryData && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           {[
             ['Month P&L',     fmtPnL(summaryData.monthPnL),  pnlColor(summaryData.monthPnL)],
             ['Total Trades',  summaryData.monthTrades,        ''],
@@ -127,17 +179,29 @@ export function Calendar() {
             ['Green Days',    `${summaryData.greenDays}/${summaryData.tradingDays}`,
               summaryData.greenDays / summaryData.tradingDays >= 0.5 ? 'text-profit' : 'text-loss'],
           ].map(([l, v, c]) => (
-            <div key={l} className="bg-card border border-border rounded-xl p-4">
+            <div key={l} className="bg-card border border-border rounded-xl p-4 shadow-card">
               <div className="text-xs text-muted mb-1">{l}</div>
               <div className={`text-xl font-bold ${c}`}>{v}</div>
             </div>
           ))}
+          <div className="bg-card border border-border rounded-xl p-4 shadow-card">
+            <div className="text-xs text-muted mb-1">Current Streak</div>
+            {streak.green > 0 ? (
+              <div className="text-xl font-bold text-profit flex items-center gap-1.5">
+                <Flame size={18} className="text-warn" /> {streak.green} green {streak.green === 1 ? 'day' : 'days'}
+              </div>
+            ) : streak.red > 0 ? (
+              <div className="text-xl font-bold text-loss">{streak.red} red {streak.red === 1 ? 'day' : 'days'}</div>
+            ) : (
+              <div className="text-xl font-bold text-muted">—</div>
+            )}
+          </div>
         </div>
       )}
 
       {/* Day detail */}
       {dayInfo && (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="bg-card border border-border rounded-xl overflow-hidden shadow-card">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="font-semibold">{selectedDay}</span>
             <span className={`font-bold ${pnlColor(dayInfo.pnl)}`}>{fmtPnL(dayInfo.pnl)}</span>

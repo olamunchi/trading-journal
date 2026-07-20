@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { detectSessionOffset } from '../engine/metrics'
-import { fetchTrades, deleteTradeRemote } from '../lib/supabase'
+import { fetchTrades, deleteTradeRemote, clearAllRemote } from '../lib/supabase'
 
 // Mistake categories from the user's Notion playbook — phrased positively
 // so the existing "followed = good" rules-checklist semantics still work.
@@ -34,11 +34,13 @@ export const useTradeStore = create(
     (set) => ({
       trades: [],
       periodFilter: 'all',
+      customRange: null, // { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' } — active when periodFilter === 'custom'
       sessionOffset: detectSessionOffset(),
       sessionOffsetAuto: true,
       dailyLossLimit: null,
       lastImportStats: null,
       journalEntries: [],
+      weeklyEntries: [],
       tradingRules: [...DEFAULT_TRADING_RULES],
       defaultRulesSeeded: true,
       // Map of CSV-header signature → saved column mapping. Re-importing a
@@ -70,8 +72,12 @@ export const useTradeStore = create(
         deleteTradeRemote(id)
         set(state => ({ trades: state.trades.filter(t => t.id !== id) }))
       },
-      clearAll: () => set({ trades: [] }),
+      clearAll: () => {
+        clearAllRemote()
+        set({ trades: [] })
+      },
       setPeriodFilter: (f) => set({ periodFilter: f }),
+      setCustomRange: (range) => set(range ? { customRange: range, periodFilter: 'custom' } : { customRange: null }),
       setSessionOffset: (n) => set({ sessionOffset: n, sessionOffsetAuto: false }),
       resetSessionOffsetAuto: () => set({ sessionOffset: detectSessionOffset(), sessionOffsetAuto: true }),
       setDailyLossLimit: (v) => set({ dailyLossLimit: v }),
@@ -86,6 +92,15 @@ export const useTradeStore = create(
       })),
       deleteJournalEntry: (date) => set(state => ({
         journalEntries: state.journalEntries.filter(e => e.date !== date),
+      })),
+      saveWeeklyEntry: (weekStart, data) => set(state => ({
+        weeklyEntries: [
+          ...state.weeklyEntries.filter(e => e.weekStart !== weekStart),
+          { ...data, weekStart },
+        ].sort((a, b) => b.weekStart.localeCompare(a.weekStart)),
+      })),
+      deleteWeeklyEntry: (weekStart) => set(state => ({
+        weeklyEntries: state.weeklyEntries.filter(e => e.weekStart !== weekStart),
       })),
       addTradingRule: (text, link) => set(state => ({
         tradingRules: [...state.tradingRules, { id: `${Date.now()}`, text: text.trim(), ...(link ? { link } : {}) }],

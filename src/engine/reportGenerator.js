@@ -23,8 +23,8 @@ function table(headers, rows) {
   ].join('\n')
 }
 
-export function generateReport(trades, periodFilter) {
-  const filtered = filterByPeriod(trades, periodFilter)
+export function generateReport(trades, periodFilter, customRange = null) {
+  const filtered = filterByPeriod(trades, periodFilter, customRange)
   const m = computeMetrics(filtered)
   if (!m) return '# No trades to report for the selected period.'
 
@@ -35,6 +35,7 @@ export function generateReport(trades, periodFilter) {
   const periodLabel = {
     all: 'All Time', today: 'Today', week: 'This Week',
     month: 'This Month', '3m': 'Last 3 Months', ytd: 'This Year',
+    custom: 'Custom Range',
   }[periodFilter] || 'All Time'
 
   const lines = []

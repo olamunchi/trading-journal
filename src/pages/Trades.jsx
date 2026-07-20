@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { StickyNote } from 'lucide-react'
 import { useTradeStore } from '../store/tradeStore'
 import { filterByPeriod, fmtPnL, pnlColor, formatDuration, computeTradeR } from '../engine/metrics'
 import { TradeDrawer } from '../components/trades/TradeDrawer'
@@ -6,16 +7,17 @@ import { TradeDrawer } from '../components/trades/TradeDrawer'
 const PAGE_SIZE = 50
 
 const PERIOD_LABELS = {
-  all:   'All Time',
-  today: 'Today',
-  week:  'This Week',
-  month: 'This Month',
-  '3m':  'Last 3 Months',
-  ytd:   'This Year',
+  all:    'All Time',
+  today:  'Today',
+  week:   'This Week',
+  month:  'This Month',
+  '3m':   'Last 3 Months',
+  ytd:    'This Year',
+  custom: 'Custom Range',
 }
 
 export function Trades() {
-  const { trades, periodFilter, setPeriodFilter } = useTradeStore()
+  const { trades, periodFilter, setPeriodFilter, customRange } = useTradeStore()
   const [search, setSearch]           = useState('')
   const [sideFilter, setSideFilter]   = useState('')
   const [resultFilter, setResult]     = useState('')
@@ -32,7 +34,7 @@ export function Trades() {
   }, [trades])
 
   const filtered = useMemo(() => {
-    let rows = filterByPeriod(trades, periodFilter)
+    let rows = filterByPeriod(trades, periodFilter, customRange)
     if (search)       rows = rows.filter(t => t.instrument.toLowerCase().includes(search.toLowerCase()))
     if (sideFilter)   rows = rows.filter(t => t.side === sideFilter)
     if (resultFilter === 'win')  rows = rows.filter(t => t.profit > 0)
@@ -42,7 +44,7 @@ export function Trades() {
       const av = a[sortKey] ?? '', bv = b[sortKey] ?? ''
       return sortDir * (av < bv ? -1 : av > bv ? 1 : 0)
     })
-  }, [trades, periodFilter, search, sideFilter, resultFilter, tagFilter, sortKey, sortDir])
+  }, [trades, periodFilter, customRange, search, sideFilter, resultFilter, tagFilter, sortKey, sortDir])
 
   function sort(key) {
     if (sortKey === key) setSortDir(d => -d)
@@ -106,7 +108,7 @@ export function Trades() {
             {periodFilter !== 'all' && (
               <button
                 onClick={() => { setPeriodFilter('all'); setPage(0) }}
-                className="ml-2 text-accent hover:text-blue-400 transition-colors"
+                className="ml-2 text-accent hover:text-accentHover transition-colors"
               >
                 clear
               </button>
@@ -182,7 +184,7 @@ export function Trades() {
                         {t.tags?.map(tag => (
                           <span key={tag} className="px-1.5 py-0.5 rounded bg-accent/15 text-accent text-xs">{tag}</span>
                         ))}
-                        {t.note && <span className="text-muted text-xs" title={t.note}>📝</span>}
+                        {t.note && <span className="text-muted" title={t.note}><StickyNote size={13} /></span>}
                       </div>
                     </td>
                   </tr>

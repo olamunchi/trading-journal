@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
+import { FileText, Lightbulb, Copy, Check } from 'lucide-react'
 import { useTradeStore } from '../store/tradeStore'
 import { generateReport } from '../engine/reportGenerator'
 
 export function Report() {
-  const { trades, periodFilter } = useTradeStore()
+  const { trades, periodFilter, customRange } = useTradeStore()
   const [copied, setCopied] = useState(false)
 
-  const report = useMemo(() => generateReport(trades, periodFilter), [trades, periodFilter])
+  const report = useMemo(() => generateReport(trades, periodFilter, customRange), [trades, periodFilter, customRange])
 
   function copyToClipboard() {
     navigator.clipboard.writeText(report).then(() => {
@@ -18,7 +19,7 @@ export function Report() {
   if (!trades.length) {
     return (
       <div className="p-6 flex flex-col items-center justify-center h-80 text-center">
-        <div className="text-5xl mb-4">📄</div>
+        <FileText size={44} className="text-subtle mb-4" />
         <div className="text-lg font-semibold text-slate-300 mb-2">No trades to report</div>
         <div className="text-sm text-muted">Import your NT8 CSV export first</div>
       </div>
@@ -39,19 +40,19 @@ export function Report() {
         </div>
         <button
           onClick={copyToClipboard}
-          className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+          className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
             copied
               ? 'bg-profit/20 text-profit border border-profit/40'
-              : 'bg-accent hover:bg-blue-500 text-white'
+              : 'bg-accent hover:bg-accentHover text-white'
           }`}
         >
-          {copied ? '✓ Copied!' : '⎘ Copy Report'}
+          {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy Report</>}
         </button>
       </div>
 
       {/* Instructions */}
       <div className="bg-card border border-border rounded-xl p-4 flex gap-3">
-        <div className="text-accent text-lg leading-none mt-0.5">💡</div>
+        <Lightbulb size={18} className="text-accent flex-shrink-0 mt-0.5" />
         <div className="space-y-1 text-sm text-muted">
           <div><span className="text-slate-300 font-medium">Step 1:</span> Click "Copy Report" above</div>
           <div><span className="text-slate-300 font-medium">Step 2:</span> Open <span className="text-accent">claude.ai</span> in a new tab</div>

@@ -65,3 +65,11 @@ export async function deleteTradeRemote(id) {
   const { error } = await supabase.from('trades').delete().eq('id', id)
   if (error) console.error('[supabase] delete failed:', error.message)
 }
+
+// Deletes all rows from the trades table. Used by clearAll so NT8-synced trades
+// don't reappear on the next sync.
+export async function clearAllRemote() {
+  if (!supabase) return
+  const { error } = await supabase.from('trades').delete().not('id', 'is', null)
+  if (error) console.error('[supabase] clearAll failed:', error.message)
+}

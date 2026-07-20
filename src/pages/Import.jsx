@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { UploadCloud, CheckCircle2 } from 'lucide-react'
 import Papa from 'papaparse'
 import { useTradeStore } from '../store/tradeStore'
 import { detectColumns, normalizeTrades, FIELD_LABELS } from '../engine/csvParser'
@@ -75,7 +76,7 @@ export function Import({ onDone }) {
               dragging ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/50 hover:bg-white/[0.02]'
             }`}
           >
-            <div className="text-5xl mb-4">📂</div>
+            <UploadCloud size={44} className="mx-auto mb-4 text-subtle" />
             <div className="text-lg font-semibold text-slate-200 mb-2">Drop your NT8 CSV here</div>
             <div className="text-sm text-muted">or click to browse — .csv or .txt</div>
             <input
@@ -181,7 +182,7 @@ export function Import({ onDone }) {
           <div className="flex gap-3">
             <button
               onClick={doImport}
-              className="px-6 py-2.5 bg-accent hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
+              className="px-6 py-2.5 bg-accent hover:bg-accentHover text-white font-medium rounded-lg transition-colors"
             >
               Import {rawRows.length} Trades →
             </button>
@@ -196,7 +197,7 @@ export function Import({ onDone }) {
       {step === 'done' && lastImportStats && (
         <div className="space-y-5">
           <div className="bg-profit/10 border border-profit/30 rounded-2xl p-12 text-center">
-            <div className="text-5xl mb-4">✅</div>
+            <CheckCircle2 size={44} className="mx-auto mb-4 text-profit" />
             <div className="text-xl font-bold text-profit mb-2">Import Complete</div>
             <div className="flex items-center justify-center gap-5 mt-3">
               <div className="text-center">
@@ -220,7 +221,7 @@ export function Import({ onDone }) {
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={onDone} className="px-6 py-2.5 bg-accent hover:bg-blue-500 text-white font-medium rounded-lg transition-colors">
+            <button onClick={onDone} className="px-6 py-2.5 bg-accent hover:bg-accentHover text-white font-medium rounded-lg transition-colors">
               View Dashboard →
             </button>
             <button onClick={reset} className="px-6 py-2.5 bg-card border border-border text-muted hover:text-slate-300 rounded-lg transition-colors">

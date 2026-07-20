@@ -1,8 +1,13 @@
-export function filterByPeriod(trades, period) {
+export function filterByPeriod(trades, period, range = null) {
   const now = new Date()
   return trades.filter(t => {
     if (!t.entryTime || period === 'all') return true
     const d = new Date(t.entryTime)
+    if (period === 'custom') {
+      if (!range?.from || !range?.to) return true
+      const ds = toDateStr(d)
+      return ds >= range.from && ds <= range.to
+    }
     if (period === 'today') return toDateStr(d) === toDateStr(now)
     if (period === 'week') {
       const s = new Date(now); s.setDate(now.getDate() - now.getDay()); s.setHours(0, 0, 0, 0)
@@ -17,6 +22,35 @@ export function filterByPeriod(trades, period) {
 
 export function toDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// ── Week helpers (Sunday-start, matching Calendar's grid) ─────────────────────
+export function getWeekStart(d) {
+  const copy = new Date(d)
+  copy.setDate(copy.getDate() - copy.getDay())
+  copy.setHours(0, 0, 0, 0)
+  return toDateStr(copy)
+}
+
+export function getWeekEnd(weekStart) {
+  const d = new Date(weekStart + 'T12:00:00')
+  d.setDate(d.getDate() + 6)
+  return toDateStr(d)
+}
+
+export function shiftWeek(weekStart, deltaWeeks) {
+  const d = new Date(weekStart + 'T12:00:00')
+  d.setDate(d.getDate() + deltaWeeks * 7)
+  return toDateStr(d)
+}
+
+export function tradesInWeek(trades, weekStart) {
+  const end = getWeekEnd(weekStart)
+  return trades.filter(t => {
+    if (!t.entryTime) return false
+    const ds = toDateStr(new Date(t.entryTime))
+    return ds >= weekStart && ds <= end
+  })
 }
 
 export function computeMetrics(trades) {
@@ -75,6 +109,43 @@ export function computeEquityCurve(trades) {
     value: +(cum += t.profit).toFixed(2),
     profit: +t.profit.toFixed(2),
   }))
+}
+
+// Cumulative P&L bucketed by calendar day — date-axis alternative to the
+// per-trade computeEquityCurve.
+export function computeDailyEquity(trades) {
+  const byDay = {}
+  trades.forEach(t => {
+    if (!t.entryTime) return
+    const k = toDateStr(new Date(t.entryTime))
+    byDay[k] = (byDay[k] || 0) + t.profit
+  })
+  let cum = 0
+  return Object.keys(byDay).sort().map(k => ({
+    date: k.slice(5).replace('-', '/'),
+    full: k,
+    pnl: +byDay[k].toFixed(2),
+    value: +(cum += byDay[k]).toFixed(2),
+  }))
+}
+
+// Current green/red streak in trading DAYS (not trades), counting back from
+// the most recent trading day. Break-even days count as red.
+export function computeDayStreak(trades) {
+  const byDay = {}
+  trades.forEach(t => {
+    if (!t.entryTime) return
+    const k = toDateStr(new Date(t.entryTime))
+    byDay[k] = (byDay[k] || 0) + t.profit
+  })
+  const days = Object.keys(byDay).sort()
+  let green = 0, red = 0
+  for (let i = days.length - 1; i >= 0; i--) {
+    if (byDay[days[i]] > 0 && red === 0) green++
+    else if (byDay[days[i]] <= 0 && green === 0) red++
+    else break
+  }
+  return { green, red, lastDay: days[days.length - 1] ?? null }
 }
 
 export function computeMonthly(trades) {
@@ -316,6 +387,16 @@ export function computeRMultiples(trades) {
   }
 }
 
+
+// Simple process-quality signal for the Dashboard's bottom tier — % of
+// followedPlan-rated trades where the plan was actually followed. Lighter
+// weight than computeDisciplineScore (which blends in mood/execution too).
+export function computeRuleAdherence(trades) {
+  const rated = trades.filter(t => t.followedPlan !== null && t.followedPlan !== undefined)
+  if (!rated.length) return null
+  const followed = rated.filter(t => t.followedPlan === true).length
+  return { rate: followed / rated.length, ratedCount: rated.length }
+}
 
 export function computeDisciplineScore(trades) {
   const rated = trades.filter(t => t.followedPlan !== null && t.followedPlan !== undefined)

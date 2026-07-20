@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { ImagePlus } from 'lucide-react'
 import { useTradeStore } from '../../store/tradeStore'
 import { fmtPnL, formatDuration, computeTradeR } from '../../engine/metrics'
 import { saveImage, loadImage, deleteImage, deleteTradeImages, compressImage } from '../../services/imageStore'
@@ -144,7 +145,7 @@ export function TradeDrawer({ trade, onClose }) {
                     dragOver[type] ? 'border-accent bg-accent/10' : 'border-border/50 hover:border-accent/50 hover:bg-white/[0.02]'
                   }`}
                 >
-                  <span className="text-3xl">📷</span>
+                  <ImagePlus size={28} className="text-subtle" />
                   <span className="text-sm text-muted">Click or drop image</span>
                 </div>
               )}
@@ -402,7 +403,7 @@ export function TradeDrawer({ trade, onClose }) {
                           dragOver[type] ? 'border-accent bg-accent/10' : 'border-border hover:border-accent/50 hover:bg-white/[0.02]'
                         }`}
                       >
-                        <span className="text-lg text-subtle">📷</span>
+                        <ImagePlus size={18} className="text-subtle" />
                         <span className="text-xs text-subtle text-center leading-tight">Click or drop</span>
                       </div>
                       <input
@@ -422,7 +423,7 @@ export function TradeDrawer({ trade, onClose }) {
 
           {/* Footer */}
           <div className="p-5 border-t border-border flex gap-2 flex-shrink-0">
-            <button onClick={save} className="flex-1 py-2 bg-accent hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+            <button onClick={save} className="flex-1 py-2 bg-accent hover:bg-accentHover text-white text-sm font-medium rounded-lg transition-colors">
               Save
             </button>
             <button onClick={handleDelete} className="px-4 py-2 bg-loss/10 hover:bg-loss/20 text-loss text-sm font-medium rounded-lg border border-loss/30 transition-colors">
