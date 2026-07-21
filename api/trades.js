@@ -62,6 +62,7 @@ export default async function handler(req, res) {
     commission: body.commission ?? 0,
     mae: body.mae ?? null,
     mfe: body.mfe ?? null,
+    stop_price: body.stopPrice ?? null,
     strategy_name: body.strategyName ?? null,
     account: body.account ?? null,
   }
