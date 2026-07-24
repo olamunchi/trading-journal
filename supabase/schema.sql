@@ -47,12 +47,15 @@ create policy "anon read" on trades for select using (true);
 -- api/prop-summary.js scopes its trade replay to [started_at, now) of the current open
 -- attempt; api/challenge-attempt-close.js closes the open attempt and opens the next one
 -- the moment NT8 detects a pass or fail, so the next trade counts toward a fresh attempt.
+-- outcome: 'passed'/'failed' are real results; 'abandoned' is a manual mid-attempt restart
+-- (AbandonChallengeNow in PropTraderAccountTool.cs) and deliberately doesn't count toward
+-- either tally in api/prop-summary.js.
 create table if not exists challenge_attempts (
   id          bigserial primary key,
   account     text not null,
   started_at  timestamptz not null,
   ended_at    timestamptz,
-  outcome     text check (outcome in ('passed','failed')),
+  outcome     text check (outcome in ('passed','failed','abandoned')),
   created_at  timestamptz default now()
 );
 

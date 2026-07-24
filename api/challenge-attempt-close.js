@@ -9,9 +9,13 @@ const supabase = createClient(
 
 // Called by PropTraderAccountTool.cs the moment it detects (from realized,
 // journal-only data — never mid-trade) that the current challenge attempt
-// passed or failed. Closes the account's open attempt with that outcome and
-// opens a fresh one starting now, so the next trade counts toward the new
-// attempt. Auth mirrors api/trades.js (shared secret, personal endpoint).
+// passed or failed, OR when the user manually abandons an in-progress
+// attempt (AbandonChallengeNow property) — e.g. restarting after a config
+// change, not a real result. 'abandoned' deliberately doesn't count toward
+// either the passed or failed tally in api/prop-summary.js. Closes the
+// account's open attempt with that outcome and opens a fresh one starting
+// now, so the next trade counts toward the new attempt. Auth mirrors
+// api/trades.js (shared secret, personal endpoint).
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
@@ -27,8 +31,8 @@ export default async function handler(req, res) {
   }
   const account = body && body.account
   const outcome = body && body.outcome
-  if (!account || (outcome !== 'passed' && outcome !== 'failed')) {
-    return res.status(400).json({ error: "Required: account, outcome ('passed'|'failed')" })
+  if (!account || (outcome !== 'passed' && outcome !== 'failed' && outcome !== 'abandoned')) {
+    return res.status(400).json({ error: "Required: account, outcome ('passed'|'failed'|'abandoned')" })
   }
 
   const now = new Date().toISOString()
